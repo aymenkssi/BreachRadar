@@ -25,14 +25,8 @@ if [ -n "$branch" ] && [ "$branch" != "HEAD" ]; then
 fi
 
 # 2. Backend : dépendances Python.
-#    emergentintegrations vient d'un index privé Emergent, inaccessible ici : on l'installe
-#    si possible, sinon on continue sans (seule la génération de rapport IA en dépend).
 if [ -f Backend/requirements.txt ]; then
-  grep -v '^emergentintegrations' Backend/requirements.txt > /tmp/breachradar-requirements.txt
-  pip install --quiet --disable-pip-version-check -r /tmp/breachradar-requirements.txt
-  pip install --quiet --disable-pip-version-check emergentintegrations \
-    --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/ >/dev/null 2>&1 \
-    || echo "[session-start] emergentintegrations indisponible (index privé Emergent)" >&2
+  pip install --quiet --disable-pip-version-check -r Backend/requirements.txt
 fi
 
 # 3. Frontend : dépendances Node (yarn).

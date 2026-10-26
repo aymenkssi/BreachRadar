@@ -1,7 +1,7 @@
 # BreachRadar AI
 
 Outil d'investigation de fuites de données (e-mails / domaines) basé sur l'API XposedOrNot,
-avec rapport généré par IA.
+avec rapport généré par Claude (API Anthropic).
 
 ## Structure
 
@@ -13,7 +13,7 @@ avec rapport généré par IA.
 
 ```bash
 # Backend
-cp Backend/.env.example Backend/.env   # renseigner MONGO_URL, DB_NAME, clé LLM
+cp Backend/.env.example Backend/.env   # renseigner MONGO_URL, DB_NAME, ANTHROPIC_API_KEY
 pip install -r Backend/requirements.txt
 uvicorn server:app --app-dir Backend --reload --port 8001
 
@@ -28,5 +28,17 @@ cd Frontend && yarn install && yarn start
 1. `git pull --ff-only` de la branche courante (ignoré s'il y a des modifications locales) ;
 2. installation des dépendances Python et Node.
 
-Les paquets privés Emergent (`emergentintegrations`, `@emergentbase/*`) ne sont pas
-accessibles depuis le cloud : le script continue sans eux.
+Les paquets front `@emergentbase/*` (overlay de l'éditeur Emergent) ne sont pas accessibles
+depuis le cloud : le script les ignore, `craco.config.js` fonctionne sans eux.
+
+## Rapport IA
+
+`generate_ai_report` appelle Claude (`ANTHROPIC_MODEL`, par défaut `claude-opus-5-5`) avec une
+sortie structurée (schéma JSON `AI_REPORT_SCHEMA`) et le repli automatique côté serveur en cas
+de refus. Sans clé ou en cas d'erreur, un rapport de repli basé sur les statistiques est renvoyé.
+
+## Tests et lint
+
+```bash
+cd Backend && python -m pytest -q && python -m flake8 .
+```

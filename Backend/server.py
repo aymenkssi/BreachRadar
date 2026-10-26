@@ -4,18 +4,17 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import re
-import json
 import asyncio
 import logging
 import requests
 import hashlib
 from pathlib import Path
 from pydantic import BaseModel, Field
-from typing import List, Optional, Any, Dict
+from typing import List, Any, Dict
 import uuid
 from datetime import datetime, timezone
 
-from emergentintegrations.llm.chat import LlmChat, UserMessage
+import anthropic
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -24,7 +23,17 @@ mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
-EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY')
+ANTHROPIC_MODEL = os.environ.get('ANTHROPIC_MODEL', 'claude-opus-5-5')
+_llm_client = None
+
+
+def get_llm_client() -> anthropic.AsyncAnthropic:
+    # Instancié à la demande : l'API reste utilisable sans clé (rapport de repli).
+    global _llm_client
+    if _llm_client is None:
+        _llm_client = anthropic.AsyncAnthropic()
+    return _llm_client
+
 
 app = FastAPI(title="BreachRadar AI")
 api_router = APIRouter(prefix="/api")
@@ -98,6 +107,29 @@ class AiReport(BaseModel):
     data_exposure_analysis: str = ""
     recommendations: List[str] = []
     immediate_actions: List[str] = []
+
+
+def _str_list(description: str) -> Dict[str, Any]:
+    return {"type": "array", "items": {"type": "string"}, "description": description}
+
+
+# Schéma imposé à la réponse du modèle (structured outputs) ; mêmes champs que AiReport.
+AI_REPORT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "threat_level": {"type": "string", "enum": ["Critical", "High", "Moderate", "Low", "Clean"]},
+        "executive_summary": {"type": "string", "description": "2-4 phrases de synthèse du risque"},
+        "attack_vectors": _str_list("Vecteurs d'attaque probables exploitant ces données"),
+        "data_exposure_analysis": {"type": "string", "description": "Analyse de la sensibilité des données exposées"},
+        "recommendations": _str_list("Recommandations de sécurité concrètes"),
+        "immediate_actions": _str_list("Actions immédiates prioritaires"),
+    },
+    "required": [
+        "threat_level", "executive_summary", "attack_vectors",
+        "data_exposure_analysis", "recommendations", "immediate_actions",
+    ],
+    "additionalProperties": False,
+}
 
 
 class Investigation(BaseModel):
@@ -288,13 +320,29 @@ def compute_yearwise(breaches: List[Breach]) -> List[Dict[str, Any]]:
 
 
 CATEGORY_RULES = [
-    ("Identifiants & Sécurité", "critical", ["password", "auth token", "security question", "pin", "mfa", "2fa", "encrypted", "salt"]),
-    ("Finances", "critical", ["credit card", "bank", "account balance", "financial", "purchase", "payment", "card", "transaction", "iban"]),
-    ("Identité personnelle", "high", ["name", "username", "gender", "date of birth", "social security", "government", "nationality", "licence", "license", "passport", "profile photo", "national id", "genders"]),
-    ("Contact & Communication", "medium", ["email", "phone", "instant messenger", "private message", "social media", "messenger", "contact"]),
-    ("Adresse & Localisation", "medium", ["physical address", "geographic", "location", "address", "spoken language"]),
-    ("Appareil & Réseau", "low", ["ip address", "device", "browser", "user agent", "website activity", "mac address", "cookie"]),
-    ("Emploi & Éducation", "low", ["job", "employer", "education", "occupation", "salary", "workplace"]),
+    ("Identifiants & Sécurité", "critical", [
+        "password", "auth token", "security question", "pin", "mfa", "2fa", "encrypted", "salt",
+    ]),
+    ("Finances", "critical", [
+        "credit card", "bank", "account balance", "financial", "purchase", "payment", "card", "transaction",
+        "iban",
+    ]),
+    ("Identité personnelle", "high", [
+        "name", "username", "gender", "date of birth", "social security", "government", "nationality",
+        "licence", "license", "passport", "profile photo", "national id", "genders",
+    ]),
+    ("Contact & Communication", "medium", [
+        "email", "phone", "instant messenger", "private message", "social media", "messenger", "contact",
+    ]),
+    ("Adresse & Localisation", "medium", [
+        "physical address", "geographic", "location", "address", "spoken language",
+    ]),
+    ("Appareil & Réseau", "low", [
+        "ip address", "device", "browser", "user agent", "website activity", "mac address", "cookie",
+    ]),
+    ("Emploi & Éducation", "low", [
+        "job", "employer", "education", "occupation", "salary", "workplace",
+    ]),
 ]
 
 
@@ -349,53 +397,54 @@ async def generate_ai_report(target: str, ttype: str, stats: Dict, breaches: Lis
     system = (
         "Tu es un analyste senior en cyber-renseignement (threat intelligence) dans un SOC. "
         "À partir des données réelles de fuites fournies, tu rédiges un rapport d'investigation "
-        "professionnel, précis et actionnable, EN FRANÇAIS. "
-        "Réponds STRICTEMENT avec un objet JSON valide, sans texte autour, avec ce schéma exact:\n"
-        "{\n"
-        '  "threat_level": "Critical|High|Moderate|Low|Clean",\n'
-        '  "executive_summary": "2-4 phrases de synthèse du risque",\n'
-        '  "attack_vectors": ["vecteurs d\'attaque probables exploitant ces données"],\n'
-        '  "data_exposure_analysis": "analyse de la sensibilité des données exposées",\n'
-        '  "recommendations": ["recommandations de sécurité concrètes"],\n'
-        '  "immediate_actions": ["actions immédiates prioritaires"]\n'
-        "}"
+        "professionnel, précis et actionnable, EN FRANÇAIS."
     )
 
     if not breaches:
-        system += "\nNote: aucune fuite trouvée, threat_level doit être 'Clean' et rassure tout en conseillant la vigilance."
+        system += (
+            "\nNote: aucune fuite trouvée, threat_level doit être 'Clean' "
+            "et rassure tout en conseillant la vigilance."
+        )
 
     try:
-        chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=str(uuid.uuid4()),
-                       system_message=system).with_model("gemini", "gemini-3.1-pro-preview")
-        resp = await chat.send_message(UserMessage(text=context))
-        text = resp if isinstance(resp, str) else str(resp)
-        text = text.strip()
-        if text.startswith("```"):
-            text = re.sub(r"^```(json)?", "", text).rsplit("```", 1)[0].strip()
-        start, end = text.find("{"), text.rfind("}")
-        parsed = json.loads(text[start:end + 1])
-        return AiReport(
-            threat_level=parsed.get("threat_level", stats["risk_label"]),
-            executive_summary=parsed.get("executive_summary", ""),
-            attack_vectors=parsed.get("attack_vectors", []) or [],
-            data_exposure_analysis=parsed.get("data_exposure_analysis", ""),
-            recommendations=parsed.get("recommendations", []) or [],
-            immediate_actions=parsed.get("immediate_actions", []) or [],
+        resp = await get_llm_client().beta.messages.create(
+            model=ANTHROPIC_MODEL,
+            max_tokens=16000,
+            system=system,
+            messages=[{"role": "user", "content": context}],
+            output_config={
+                "effort": "medium",
+                "format": {"type": "json_schema", "schema": AI_REPORT_SCHEMA},
+            },
+            # En cas de refus des filtres de sécurité, l'API relance sur le modèle de repli recommandé.
+            betas=["server-side-fallback-2026-07-01"],
+            fallbacks="default",
         )
+        if resp.stop_reason != "end_turn":
+            raise RuntimeError(f"réponse incomplète (stop_reason={resp.stop_reason})")
+        text = next(b.text for b in resp.content if b.type == "text")
+        return AiReport.model_validate_json(text)
     except Exception as e:
         logger.error(f"AI report generation failed: {e}")
-        return AiReport(
-            threat_level=stats["risk_label"],
-            executive_summary=(
-                f"L'investigation a identifié {stats['total_breaches']} fuite(s) associée(s) à cette cible, "
-                f"exposant environ {stats['total_records']:,} enregistrements. "
-                "L'analyse IA détaillée est momentanément indisponible."
-            ),
-            attack_vectors=["Credential stuffing", "Hameçonnage ciblé (spear phishing)"] if stats["exposed_passwords"] else ["Hameçonnage ciblé (spear phishing)"],
-            data_exposure_analysis="Analyse basée sur les types de données exposées dans les fuites détectées.",
-            recommendations=["Changer les mots de passe réutilisés", "Activer l'authentification à deux facteurs (2FA)"],
-            immediate_actions=["Réinitialiser les identifiants compromis"],
-        )
+        return fallback_report(stats)
+
+
+def fallback_report(stats: Dict) -> AiReport:
+    vectors = ["Hameçonnage ciblé (spear phishing)"]
+    if stats["exposed_passwords"]:
+        vectors.insert(0, "Credential stuffing")
+    return AiReport(
+        threat_level=stats["risk_label"],
+        executive_summary=(
+            f"L'investigation a identifié {stats['total_breaches']} fuite(s) associée(s) à cette cible, "
+            f"exposant environ {stats['total_records']:,} enregistrements. "
+            "L'analyse IA détaillée est momentanément indisponible."
+        ),
+        attack_vectors=vectors,
+        data_exposure_analysis="Analyse basée sur les types de données exposées dans les fuites détectées.",
+        recommendations=["Changer les mots de passe réutilisés", "Activer l'authentification à deux facteurs (2FA)"],
+        immediate_actions=["Réinitialiser les identifiants compromis"],
+    )
 
 
 # ---------- Routes ----------
@@ -416,7 +465,10 @@ async def build_investigation(target: str, with_ai: bool = True) -> Investigatio
     ttype, breaches, stats = await analyze_target(target)
     yearwise = compute_yearwise(breaches)
     data_categories = compute_data_categories(breaches)
-    ai_report = await generate_ai_report(target, ttype, stats, breaches) if with_ai else AiReport(threat_level=stats["risk_label"])
+    if with_ai:
+        ai_report = await generate_ai_report(target, ttype, stats, breaches)
+    else:
+        ai_report = AiReport(threat_level=stats["risk_label"])
     inv = Investigation(
         target=target, target_type=ttype, score=stats["score"], risk_label=stats["risk_label"],
         total_breaches=stats["total_breaches"], total_records=stats["total_records"],
@@ -540,7 +592,9 @@ async def add_watch(req: WatchCreate):
     target = req.target.strip()
     if not target:
         raise HTTPException(status_code=400, detail="Cible vide")
-    existing = await db.watchlist.find_one({"target": {"$regex": f"^{re.escape(target)}$", "$options": "i"}}, {"_id": 0})
+    existing = await db.watchlist.find_one(
+        {"target": {"$regex": f"^{re.escape(target)}$", "$options": "i"}}, {"_id": 0}
+    )
     if existing:
         return Watch(**existing)
     ttype, breaches, stats = await analyze_target(target)
