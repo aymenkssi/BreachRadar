@@ -7,21 +7,26 @@ from fastapi.testclient import TestClient
 from mongomock_motor import AsyncMongoMockClient
 
 import accounts
+import admin
 import billing
 import mailer
 import main
 import premium
+import privacy
 import server
+import settings_store
 from server import Breach
 
 
 @pytest.fixture
 def env(monkeypatch):
     db = AsyncMongoMockClient()["test"]
-    for module in (server, main, accounts, billing, premium):
+    for module in (server, main, accounts, billing, premium, mailer, settings_store, admin, privacy):
         monkeypatch.setattr(module, "db", db)
     sent = []
     monkeypatch.setattr(mailer, "_transport", sent.append)
+    for var in ("SMTP_USER", "SMTP_FROM"):
+        monkeypatch.setenv(var, "test@breachradar.fr")
     breaches = {}  # adresse -> liste de Breach, ou exception à lever
 
     async def fake_gather(target, ttype, strict=False):
@@ -44,7 +49,8 @@ def last_code(sent, to):
 
 def signup(env, email="alice@example.com", password="motdepasse1"):
     c = env["client"]
-    assert c.post("/api/auth/register", json={"email": email, "password": password}).status_code == 200
+    assert c.post("/api/auth/register", json={"email": email, "password": password,
+                                              "accept_terms": True}).status_code == 200
     r = c.post("/api/auth/verify", json={"email": email, "code": last_code(env["sent"], email)})
     assert r.status_code == 200
     return {"Authorization": f"Bearer {r.json()['token']}"}
@@ -68,19 +74,20 @@ def test_signup_login_and_me(env):
     r = c.post("/api/auth/login", json={"email": "ALICE@example.com", "password": "motdepasse1"})
     assert r.status_code == 200 and r.json()["token"]
     assert c.post("/api/auth/login", json={"email": "alice@example.com", "password": "mauvais123"}).status_code == 401
-    assert c.post("/api/auth/register", json={"email": "alice@example.com", "password": "autre1234"}).status_code == 409
+    r = c.post("/api/auth/register", json={"email": "alice@example.com", "password": "autre1234", "accept_terms": True})
+    assert r.status_code == 409
 
 
 def test_login_requires_verified_email(env):
     c = env["client"]
-    c.post("/api/auth/register", json={"email": "bob@example.com", "password": "motdepasse1"})
+    c.post("/api/auth/register", json={"email": "bob@example.com", "password": "motdepasse1", "accept_terms": True})
     r = c.post("/api/auth/login", json={"email": "bob@example.com", "password": "motdepasse1"})
     assert r.status_code == 403 and r.json()["detail"] == "email_not_verified"
 
 
 def test_code_attempts_are_limited(env):
     c = env["client"]
-    c.post("/api/auth/register", json={"email": "bob@example.com", "password": "motdepasse1"})
+    c.post("/api/auth/register", json={"email": "bob@example.com", "password": "motdepasse1", "accept_terms": True})
     good = last_code(env["sent"], "bob@example.com")
     wrong = "000000" if good != "000000" else "111111"
     for _ in range(accounts.CODE_MAX_ATTEMPTS):
@@ -222,16 +229,23 @@ def test_password_report_requires_premium(env):
 
 
 # ---------- Abonnement PayPal ----------
+def payment_config(**over):
+    base = dict(price_monthly_label="4,99 €", price_yearly_label="49,99 €", paypal_enabled=True,
+                paypal_mode="sandbox", paypal_client_id="client", paypal_secret="secret", paypal_webhook_id="wh",
+                paypal_plan_monthly="P-MONTH", paypal_plan_yearly="P-YEAR", stripe_enabled=True,
+                stripe_secret_key="sk_test_x", stripe_webhook_secret="whsec_x",
+                stripe_price_monthly="price_m", stripe_price_yearly="price_y")
+    return billing.PaymentConfig(**{**base, **over})
+
+
 @pytest.fixture
 def paypal(monkeypatch):
-    monkeypatch.setattr(billing, "PAYPAL_CLIENT_ID", "client")
-    monkeypatch.setattr(billing, "PAYPAL_SECRET", "secret")
-    monkeypatch.setattr(billing, "PAYPAL_WEBHOOK_ID", "wh")
-    monkeypatch.setitem(billing.PLANS["monthly"], "plan_id", "P-MONTH")
-    monkeypatch.setitem(billing.PLANS["yearly"], "plan_id", "P-YEAR")
+    async def get_config():
+        return payment_config()
+    monkeypatch.setattr(billing, "get_config", get_config)
     subs = {}
 
-    async def fake_paypal(method, path, json=None):
+    async def fake_paypal(cfg, method, path, json=None):
         if path == "/v1/notifications/verify-webhook-signature":
             return {"verification_status": "SUCCESS"}
         sub_id = path.split("/")[4]
@@ -253,9 +267,10 @@ def test_subscription_activation_and_webhooks(env, paypal):
     headers = signup(env)
     paypal["I-1"] = {"id": "I-1", "plan_id": "P-YEAR", "status": "ACTIVE", "custom_id": user_id(env),
                      "billing_info": {"next_billing_time": "2099-01-01T00:00:00Z"}}
-    assert c.get("/api/billing/config").json()["enabled"] is True
+    conf = c.get("/api/billing/config").json()
+    assert conf["enabled"] and conf["paypal"]["enabled"] and conf["stripe"]["enabled"]
     me = c.post("/api/billing/paypal/subscription", json={"subscription_id": "I-1"}, headers=headers).json()
-    assert me["premium"] and me["subscription"] == {"plan": "yearly", "status": "ACTIVE"}
+    assert me["premium"] and me["subscription"] == {"provider": "paypal", "plan": "yearly", "status": "ACTIVE"}
 
     # Résiliation : l'accès reste ouvert jusqu'à la fin de la période payée
     me = c.post("/api/billing/cancel", headers=headers).json()
@@ -278,7 +293,7 @@ def test_subscription_of_another_account_is_refused(env, paypal):
 
 
 def test_webhook_with_bad_signature_is_rejected(env, paypal, monkeypatch):
-    async def refuse(method, path, json=None):
+    async def refuse(cfg, method, path, json=None):
         return {"verification_status": "FAILURE"}
     monkeypatch.setattr(billing, "paypal", refuse)
     r = env["client"].post("/api/billing/paypal/webhook", json={"event_type": "BILLING.SUBSCRIPTION.ACTIVATED"})

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { ShieldCheck, Radar, AlertTriangle, ShieldOff, Bell, Loader2, Crown } from "lucide-react";
 import { SearchBar } from "@/components/investigation/SearchBar";
@@ -18,7 +19,7 @@ import { ThemeToggle } from "@/components/investigation/ThemeToggle";
 import { AccountSheet } from "@/components/account/AccountSheet";
 import { useAuth } from "@/components/AuthProvider";
 import { Button } from "@/components/ui/button";
-import { investigate, getHistory, deleteInvestigation, clearHistory, generateReport, getWatchlist, addWatch } from "@/lib/api";
+import { investigate, getHistory, deleteInvestigation, clearHistory, generateReport, getWatchlist, addWatch, confirmStripeCheckout, errorMessage } from "@/lib/api";
 
 const EmptyState = () => (
   <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card/40 py-24 text-center">
@@ -50,7 +51,7 @@ export default function Dashboard() {
   const [watching, setWatching] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [accountTab, setAccountTab] = useState("premium");
-  const { user, ready } = useAuth();
+  const { user, ready, setUser } = useAuth();
 
   const openAccount = (tab) => { setAccountTab(tab); setAccountOpen(true); };
 
@@ -66,6 +67,25 @@ export default function Dashboard() {
     loadHistory();
     loadWatchlist();
   }, [ready, user?.id]);
+
+  // Retour de la page de paiement Stripe : ?premium=stripe&session_id=… ou ?premium=cancel
+  useEffect(() => {
+    if (!ready) return;
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get("premium");
+    if (!status) return;
+    window.history.replaceState(null, "", window.location.pathname);
+    if (status === "cancel") {
+      toast.info("Paiement annulé.");
+      return;
+    }
+    const sessionId = params.get("session_id");
+    if (status === "stripe" && sessionId && user) {
+      confirmStripeCheckout(sessionId)
+        .then((me) => { setUser(me); toast.success("Bienvenue dans Premium !"); openAccount("monitors"); })
+        .catch((err) => toast.error(errorMessage(err, "Paiement reçu mais activation impossible : contactez-nous.")));
+    }
+  }, [ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isWatched = result && watchlist.some((w) => w.target.toLowerCase() === result.target.toLowerCase());
 
@@ -266,7 +286,12 @@ export default function Dashboard() {
       </main>
 
       <footer className="relative z-10 border-t border-border py-6 text-center text-xs font-mono-x text-muted-foreground">
-        BreachRadar AI · Données de fuites fournies par XposedOrNot · À usage éducatif et de sensibilisation
+        <p>BreachRadar AI · Données de fuites fournies par XposedOrNot · À usage éducatif et de sensibilisation</p>
+        <nav className="mt-2 flex flex-wrap justify-center gap-4">
+          <Link to="/mentions-legales" className="hover:text-foreground">Mentions légales</Link>
+          <Link to="/cgv" className="hover:text-foreground">CGV</Link>
+          <Link to="/confidentialite" className="hover:text-foreground">Confidentialité</Link>
+        </nav>
       </footer>
     </div>
   );

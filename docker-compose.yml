@@ -2,6 +2,12 @@
 # termine le HTTPS (Let's Encrypt) et route breachradar.fr vers les conteneurs.
 # Secrets dans ./.env (voir .env.example), jamais dans ce fichier.
 
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 x-backend-env: &backend-env
   MONGO_URL: mongodb://breachradar_admin:${MONGO_ROOT_PASSWORD}@mongodb:27017/?authSource=admin
   DB_NAME: breachradar
@@ -28,11 +34,18 @@ x-backend-env: &backend-env
   PRICE_MONTHLY_LABEL: ${PRICE_MONTHLY_LABEL:-4,99 €}
   PRICE_YEARLY_LABEL: ${PRICE_YEARLY_LABEL:-49,99 €}
   MONITOR_LIMIT: ${MONITOR_LIMIT:-5}
+  STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+  STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+  STRIPE_PRICE_MONTHLY: ${STRIPE_PRICE_MONTHLY:-}
+  STRIPE_PRICE_YEARLY: ${STRIPE_PRICE_YEARLY:-}
+  ADMIN_EMAILS: ${ADMIN_EMAILS:?définir ADMIN_EMAILS dans .env (adresses des administrateurs)}
+  EMAIL_DAILY_LIMIT: ${EMAIL_DAILY_LIMIT:-300}
 
 services:
   mongodb:
     image: mongo:7
     container_name: breachradar-mongodb
+    logging: *logging
     restart: always
     environment:
       MONGO_INITDB_ROOT_USERNAME: breachradar_admin
@@ -45,6 +58,7 @@ services:
   backend:
     build: ./Backend
     container_name: breachradar-backend
+    logging: *logging
     restart: always
     environment: *backend-env
     depends_on:
@@ -65,6 +79,7 @@ services:
   scheduler:
     build: ./Backend
     container_name: breachradar-scheduler
+    logging: *logging
     restart: always
     command: ["python", "scheduler.py"]
     environment: *backend-env
@@ -76,6 +91,7 @@ services:
   frontend:
     build: ./Frontend
     container_name: breachradar-frontend
+    logging: *logging
     restart: always
     depends_on:
       - backend

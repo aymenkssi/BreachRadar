@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { Loader2, LogIn, UserPlus, MailCheck, KeyRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,7 @@ export const AuthPanel = () => {
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
+  const [acceptTerms, setAcceptTerms] = useState(false);
 
   const go = (m) => { setMode(m); setCode(""); };
 
@@ -42,7 +44,7 @@ export const AuthPanel = () => {
           } else throw err;
         }
       } else if (mode === "register") {
-        await register(email, password);
+        await register(email, password, acceptTerms);
         toast.success("Code envoyé par e-mail.");
         go("verify");
       } else if (mode === "verify") {
@@ -108,6 +110,17 @@ export const AuthPanel = () => {
             value={password} onChange={(e) => setPassword(e.target.value)} data-testid="auth-password" />
           {mode !== "login" && <p className="text-xs text-muted-foreground">8 caractères minimum.</p>}
         </div>
+      )}
+
+      {mode === "register" && (
+        <label className="flex items-start gap-2 text-xs text-muted-foreground">
+          <input type="checkbox" required checked={acceptTerms} onChange={(e) => setAcceptTerms(e.target.checked)}
+            className="mt-0.5" data-testid="auth-terms" />
+          <span>
+            J'accepte les <Link to="/cgv" target="_blank" className="text-primary hover:underline">conditions générales</Link> et
+            la <Link to="/confidentialite" target="_blank" className="text-primary hover:underline">politique de confidentialité</Link>.
+          </span>
+        </label>
       )}
 
       <Button type="submit" className="w-full gap-2" disabled={busy} data-testid="auth-submit">

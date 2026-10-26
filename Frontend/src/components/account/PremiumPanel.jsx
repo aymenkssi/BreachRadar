@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Crown, Check, Loader2, AlertTriangle, BellRing, KeyRound, Mail } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Crown, Check, Loader2, AlertTriangle, BellRing, KeyRound, Mail, CreditCard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useAuth } from "@/components/AuthProvider";
-import { getBillingConfig, activateSubscription, cancelSubscription, errorMessage } from "@/lib/api";
+import {
+  getBillingConfig, activateSubscription, cancelSubscription, startStripeCheckout, errorMessage,
+} from "@/lib/api";
 
 const FEATURES = [
   { icon: BellRing, text: "Veille quotidienne de vos adresses e-mail" },
@@ -43,8 +46,10 @@ const SubscriptionStatus = ({ user, onCancel, cancelling }) => {
           <Crown className="h-5 w-5" /> Premium actif
         </p>
         <p className="mt-1 text-sm text-muted-foreground">
-          {sub.plan && <>Formule {sub.plan === "yearly" ? "annuelle" : "mensuelle"} · </>}
-          {cancelled ? "résiliée, accès jusqu'au " : "renouvellement le "}
+          {sub.plan && <>Formule {sub.plan === "yearly" ? "annuelle" : "mensuelle"}
+            {sub.provider && <> ({sub.provider === "stripe" ? "carte bancaire" : "PayPal"})</>} · </>}
+          {!sub.status && "accès offert jusqu'au "}
+          {sub.status && (cancelled ? "résiliée, accès jusqu'au " : "renouvellement le ")}
           <span className="text-foreground">{formatDate(user.premium_until)}</span>
         </p>
       </div>
@@ -86,25 +91,27 @@ export const PremiumPanel = () => {
   const [cancelling, setCancelling] = useState(false);
   const [activating, setActivating] = useState(false);
   const [sdkError, setSdkError] = useState(false);
+  const [consent, setConsent] = useState(false);
+  const [redirecting, setRedirecting] = useState(false);
   const buttonsRef = useRef(null);
 
   useEffect(() => {
     getBillingConfig().then(setConfig).catch(() => setConfig({ enabled: false, plans: [] }));
   }, []);
 
-  const selected = config?.plans.find((p) => p.key === plan);
+  const paypalPlanId = config?.paypal?.plans?.[plan];
 
   useEffect(() => {
-    if (!config?.enabled || !selected || user?.premium || !buttonsRef.current) return undefined;
+    if (!config?.paypal?.enabled || !paypalPlanId || !consent || user?.premium || !buttonsRef.current) return undefined;
     let buttons;
     let disposed = false;
-    loadPaypal(config.client_id).then((paypal) => {
+    loadPaypal(config.paypal.client_id).then((paypal) => {
       if (disposed || !buttonsRef.current) return;
       buttonsRef.current.innerHTML = "";
       buttons = paypal.Buttons({
         style: { layout: "vertical", label: "subscribe", shape: "rect" },
         createSubscription: (data, actions) =>
-          actions.subscription.create({ plan_id: selected.plan_id, custom_id: user.id }),
+          actions.subscription.create({ plan_id: paypalPlanId, custom_id: user.id }),
         onApprove: async (data) => {
           setActivating(true);
           try {
@@ -121,7 +128,18 @@ export const PremiumPanel = () => {
       buttons.render(buttonsRef.current);
     }).catch(() => setSdkError(true));
     return () => { disposed = true; buttons?.close?.(); };
-  }, [config, selected, user?.premium, user?.id, setUser]);
+  }, [config, paypalPlanId, consent, user?.premium, user?.id, setUser]);
+
+  const payByCard = async () => {
+    setRedirecting(true);
+    try {
+      const { url } = await startStripeCheckout(plan);
+      window.location.assign(url);
+    } catch (err) {
+      toast.error(errorMessage(err, "Paiement par carte indisponible."));
+      setRedirecting(false);
+    }
+  };
 
   const onCancel = async () => {
     setCancelling(true);
@@ -169,16 +187,32 @@ export const PremiumPanel = () => {
               </button>
             ))}
           </div>
+          <label className="flex items-start gap-2 rounded-xl border border-border p-3 text-xs text-muted-foreground">
+            <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="mt-0.5"
+              data-testid="withdrawal-consent" />
+            <span>
+              J'accepte les <Link to="/cgv" target="_blank" className="text-primary hover:underline">CGV</Link> et je
+              demande à bénéficier de Premium immédiatement. Si j'exerce mon droit de rétractation dans les 14 jours, le
+              montant correspondant au service déjà fourni restera dû.
+            </span>
+          </label>
           {activating && (
             <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Activation…</p>
           )}
-          {sdkError ? (
+          {consent && config.stripe?.enabled && (
+            <Button className="w-full gap-2" onClick={payByCard} disabled={redirecting} data-testid="stripe-pay-btn">
+              {redirecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CreditCard className="h-4 w-4" />}
+              Payer par carte bancaire
+            </Button>
+          )}
+          {consent && config.paypal?.enabled && (sdkError ? (
             <p className="text-sm text-red-500">Impossible de charger PayPal. Désactivez un éventuel bloqueur de publicités et réessayez.</p>
           ) : (
             <div ref={buttonsRef} data-testid="paypal-buttons" />
-          )}
+          ))}
           <p className="text-xs text-muted-foreground">
-            Paiement sécurisé par PayPal, renouvelé automatiquement, résiliable à tout moment depuis cet écran.
+            Paiement sécurisé par {[config.stripe?.enabled && "Stripe", config.paypal?.enabled && "PayPal"].filter(Boolean).join(" ou ")},
+            renouvelé automatiquement, résiliable à tout moment depuis cet écran (effet à la fin de la période payée).
           </p>
         </>
       )}

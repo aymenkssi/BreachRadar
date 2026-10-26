@@ -49,11 +49,15 @@ Mise à jour sur le VPS : `./deploy.sh`.
 
 - `Backend/main.py` : point d'entrée de l'API (`server.py` + routes ci-dessous)
 - `accounts.py` : inscription avec code e-mail, connexion (JWT), mot de passe oublié
-- `billing.py` : abonnement PayPal mensuel/annuel, webhook, résiliation
+- `billing.py` : abonnement mensuel/annuel par PayPal et/ou Stripe, webhooks, résiliation, rappel de reconduction
 - `premium.py` : veille d'adresses vérifiées, alertes, rapport des mots de passe (sans jamais
   afficher les mots de passe)
 - `scheduler.py` : passe quotidienne (conteneur `breachradar-scheduler`)
-- `mailer.py` : envoi SMTP (Brevo)
+- `mailer.py` : envoi SMTP (Brevo) avec limite journalière, compteur et service de secours
+- `admin.py` : administration (abonnés, paiement PayPal/Stripe, SMTP, infos légales, journal)
+- `privacy.py` : export / suppression du compte, purge selon les durées de conservation
+- `settings_store.py` : réglages de l'admin, secrets chiffrés
+- Frontend : `/admin`, pages `/mentions-legales`, `/cgv`, `/confidentialite`
 
 L'historique et la liste de surveillance sont privés : liés au compte connecté, sinon au
 navigateur (en-tête `X-Client-Id`).

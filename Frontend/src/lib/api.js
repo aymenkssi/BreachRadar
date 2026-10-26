@@ -46,9 +46,6 @@ export const investigateBatch = (targets) =>
 export const generateReport = (id) =>
   axios.post(`${API}/investigation/${id}/report`).then((r) => r.data);
 
-export const checkPassword = (password) =>
-  axios.post(`${API}/check-password`, { password }).then((r) => r.data);
-
 export const getHistory = () => axios.get(`${API}/history`).then((r) => r.data);
 
 export const deleteInvestigation = (id) =>
@@ -75,8 +72,11 @@ export const deleteWatch = (id) =>
   axios.delete(`${API}/watchlist/${id}`).then((r) => r.data);
 
 // ---------- Compte ----------
-export const register = (email, password) =>
-  axios.post(`${API}/auth/register`, { email, password }).then((r) => r.data);
+export const register = (email, password, acceptTerms) =>
+  axios.post(`${API}/auth/register`, { email, password, accept_terms: acceptTerms }).then((r) => r.data);
+export const exportMyData = () => axios.get(`${API}/auth/export`).then((r) => r.data);
+export const deleteMyAccount = (password) =>
+  axios.delete(`${API}/auth/account`, { data: { password } }).then((r) => r.data);
 export const verifyAccount = (email, code) =>
   axios.post(`${API}/auth/verify`, { email, code }).then((r) => r.data);
 export const resendAccountCode = (email) =>
@@ -94,6 +94,11 @@ export const getBillingConfig = () => axios.get(`${API}/billing/config`).then((r
 export const activateSubscription = (subscriptionId) =>
   axios.post(`${API}/billing/paypal/subscription`, { subscription_id: subscriptionId }).then((r) => r.data);
 export const cancelSubscription = () => axios.post(`${API}/billing/cancel`).then((r) => r.data);
+export const startStripeCheckout = (plan) =>
+  axios.post(`${API}/billing/stripe/checkout`, { plan }).then((r) => r.data);
+export const confirmStripeCheckout = (sessionId) =>
+  axios.post(`${API}/billing/stripe/confirm`, { session_id: sessionId }).then((r) => r.data);
+export const getLegal = () => axios.get(`${API}/legal`).then((r) => r.data);
 
 // ---------- Premium ----------
 export const getMonitors = () => axios.get(`${API}/premium/monitors`).then((r) => r.data);
@@ -109,3 +114,27 @@ export const deleteMonitor = (id) =>
   axios.delete(`${API}/premium/monitors/${id}`).then((r) => r.data);
 export const getPasswordReport = (email) =>
   axios.get(`${API}/premium/password-report`, { params: { email } }).then((r) => r.data);
+
+// ---------- Administration ----------
+const adminGet = (path, params) => axios.get(`${API}/admin${path}`, { params }).then((r) => r.data);
+const adminSend = (method, path, data) => axios({ method, url: `${API}/admin${path}`, data }).then((r) => r.data);
+export const admin = {
+  overview: () => adminGet("/overview"),
+  users: (params) => adminGet("/users", params),
+  grantPremium: (id, until, note) => adminSend("post", `/users/${id}/premium`, { until, note }),
+  revokePremium: (id) => adminSend("post", `/users/${id}/revoke`),
+  cancelSubscription: (id) => adminSend("post", `/users/${id}/cancel`),
+  syncSubscription: (id) => adminSend("post", `/users/${id}/sync`),
+  deleteUser: (id) => adminSend("delete", `/users/${id}`),
+  payments: () => adminGet("/payments"),
+  savePayments: (data) => adminSend("put", "/payments", data),
+  createPlans: (provider, monthly, yearly) => adminSend("post", "/payments/create-plans", { provider, monthly, yearly }),
+  smtp: () => adminGet("/smtp"),
+  saveSmtp: (data) => adminSend("put", "/smtp", data),
+  resetSmtp: () => adminSend("delete", "/smtp"),
+  testSmtp: (to, service) => adminSend("post", "/smtp/test", { to: to || null, service }),
+  smtpUsage: () => adminGet("/smtp/usage"),
+  legal: () => adminGet("/legal"),
+  saveLegal: (data) => adminSend("put", "/legal", data),
+  audit: () => adminGet("/audit"),
+};

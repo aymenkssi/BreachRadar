@@ -1,4 +1,5 @@
-import { Crown, LogIn, LogOut, UserRound, Loader2 } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Crown, LogIn, LogOut, UserRound, Loader2, Settings } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -7,6 +8,7 @@ import { AuthPanel } from "@/components/account/AuthPanel";
 import { PremiumPanel } from "@/components/account/PremiumPanel";
 import { MonitorsPanel } from "@/components/account/MonitorsPanel";
 import { PasswordReportPanel } from "@/components/account/PasswordReportPanel";
+import { MyDataSection } from "@/components/account/MyDataSection";
 
 // Ouvert depuis l'en-tête, ou par le tableau de bord sur un onglet précis (tab / onTabChange).
 export const AccountSheet = ({ open, onOpenChange, tab, onTabChange }) => {
@@ -45,9 +47,17 @@ export const AccountSheet = ({ open, onOpenChange, tab, onTabChange }) => {
               <TabsContent value="monitors"><MonitorsPanel onUpgrade={() => onTabChange("premium")} /></TabsContent>
               <TabsContent value="passwords"><PasswordReportPanel onUpgrade={() => onTabChange("premium")} /></TabsContent>
             </Tabs>
-            <Button variant="ghost" size="sm" className="mt-6 gap-2 text-muted-foreground" onClick={signOut} data-testid="logout-btn">
-              <LogOut className="h-4 w-4" /> Se déconnecter
-            </Button>
+            <MyDataSection />
+            <div className="mt-6 flex flex-wrap gap-2">
+              {user.is_admin && (
+                <Button asChild variant="outline" size="sm" className="gap-2" data-testid="admin-link">
+                  <Link to="/admin"><Settings className="h-4 w-4" /> Administration</Link>
+                </Button>
+              )}
+              <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground" onClick={signOut} data-testid="logout-btn">
+                <LogOut className="h-4 w-4" /> Se déconnecter
+              </Button>
+            </div>
           </>
         )}
       </SheetContent>

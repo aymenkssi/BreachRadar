@@ -2,7 +2,18 @@ import { useState } from "react";
 import { KeyRound, Eye, EyeOff, Loader2, ShieldCheck, ShieldAlert, Search } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { checkPassword } from "@/lib/api";
+
+// k-anonymat : le navigateur calcule l'empreinte SHA-1 et n'envoie à Pwned Passwords que ses 5 premiers
+// caractères ; la comparaison se fait ici. Le mot de passe ne quitte jamais l'appareil.
+const checkPassword = async (password) => {
+  const digest = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(password));
+  const hash = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("").toUpperCase();
+  const res = await fetch(`https://api.pwnedpasswords.com/range/${hash.slice(0, 5)}`, { headers: { "Add-Padding": "true" } });
+  if (!res.ok) throw new Error("Pwned Passwords indisponible");
+  const line = (await res.text()).split("\n").find((l) => l.startsWith(hash.slice(5)));
+  const count = line ? parseInt(line.split(":")[1], 10) || 0 : 0;
+  return { pwned: count > 0, count };
+};
 import { formatNumber } from "@/lib/format";
 
 export const PasswordCheckDialog = () => {
@@ -45,7 +56,7 @@ export const PasswordCheckDialog = () => {
             <KeyRound className="h-5 w-5 text-primary" /> Vérification de mot de passe
           </DialogTitle>
           <DialogDescription>
-            Vérifiez si un mot de passe figure dans des fuites connues. Confidentiel : seul un préfixe haché (k-anonymat, SHA-1) est envoyé — jamais le mot de passe.
+            Vérifiez si un mot de passe figure dans des fuites connues. Confidentiel : votre navigateur calcule l'empreinte SHA-1 du mot de passe et n'envoie que ses 5 premiers caractères (k-anonymat) — le mot de passe ne quitte jamais votre appareil.
           </DialogDescription>
         </DialogHeader>
 

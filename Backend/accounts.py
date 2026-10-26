@@ -2,6 +2,7 @@
 # Les codes à usage unique servent aussi à confirmer les adresses surveillées (premium.py).
 import hashlib
 import hmac
+import os
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -23,9 +24,16 @@ LOGIN_MAX_FAILURES = 10
 LOGIN_LOCK_MINUTES = 15
 
 
+TERMS_VERSION = "2026-10"
+
+
 class Credentials(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
+
+
+class Registration(Credentials):
+    accept_terms: bool = False
 
 
 class EmailOnly(BaseModel):
@@ -55,6 +63,11 @@ def normalize(email: str) -> str:
     return email.strip().lower()
 
 
+def is_admin(user: dict) -> bool:
+    admins = {normalize(e) for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip()}
+    return bool(user.get("email_verified")) and user["email"] in admins
+
+
 def is_premium(user: dict) -> bool:
     until = parse_dt(user.get("premium_until"))
     return bool(until and until > now())
@@ -67,7 +80,9 @@ def public_user(user: dict) -> dict:
         "email": user["email"],
         "premium": is_premium(user),
         "premium_until": user.get("premium_until"),
-        "subscription": {"plan": sub.get("plan"), "status": sub.get("status")} if sub else None,
+        "subscription": {"provider": sub.get("provider") or "paypal", "plan": sub.get("plan"),
+                         "status": sub.get("status")} if sub else None,
+        "is_admin": is_admin(user),
     }
 
 
@@ -119,19 +134,24 @@ async def premium_user(user: dict = Depends(current_user)) -> dict:
     return user
 
 
-def session(user: dict) -> dict:
-    return {"token": create_token(user["id"]), "user": public_user(user)}
+async def session(user: dict) -> dict:
+    await db.users.update_one({"id": user["id"]}, {"$set": {"last_login_at": now().isoformat()}})
+    return {"token": create_token(user["id"]), "user": public_user({**user, "email_verified": True})}
 
 
 # ---------- Routes ----------
 @router.post("/register")
-async def register(req: Credentials):
+async def register(req: Registration):
+    if not req.accept_terms:
+        raise HTTPException(status_code=400, detail="Vous devez accepter les CGV et la politique de confidentialité.")
     email = normalize(req.email)
+    accepted = {"terms_accepted_at": now().isoformat(), "terms_version": TERMS_VERSION}
     user = await db.users.find_one({"email": email}, {"_id": 0})
     if user and user.get("email_verified"):
         raise HTTPException(status_code=409, detail="Un compte existe déjà pour cette adresse.")
     if user:
-        await db.users.update_one({"id": user["id"]}, {"$set": {"password_hash": hash_password(req.password)}})
+        await db.users.update_one({"id": user["id"]},
+                                  {"$set": {"password_hash": hash_password(req.password), **accepted}})
     else:
         await db.users.insert_one({
             "id": str(uuid.uuid4()),
@@ -139,6 +159,7 @@ async def register(req: Credentials):
             "password_hash": hash_password(req.password),
             "email_verified": False,
             "created_at": now().isoformat(),
+            **accepted,
         })
     await issue_code(email, "account")
     return {"status": "code_sent"}
@@ -151,7 +172,7 @@ async def verify(req: CodeCheck):
     if not user or not await check_code(email, "account", req.code):
         raise HTTPException(status_code=400, detail="Code invalide ou expiré.")
     await db.users.update_one({"id": user["id"]}, {"$set": {"email_verified": True}})
-    return session(user)
+    return await session(user)
 
 
 @router.post("/resend")
@@ -186,7 +207,7 @@ async def login(req: Credentials):
         except HTTPException:
             pass  # un code récent est encore valable
         raise HTTPException(status_code=403, detail="email_not_verified")
-    return session(user)
+    return await session(user)
 
 
 @router.post("/forgot")
@@ -207,7 +228,7 @@ async def reset(req: PasswordReset):
         "password_hash": hash_password(req.password), "email_verified": True,
         "login_failures": 0, "locked_until": None,
     }})
-    return session(user)
+    return await session(user)
 
 
 @router.get("/me")

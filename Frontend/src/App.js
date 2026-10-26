@@ -4,6 +4,8 @@ import { ThemeProvider } from "@/components/ThemeProvider";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider } from "@/components/AuthProvider";
 import Dashboard from "@/pages/Dashboard";
+import AdminPage from "@/pages/AdminPage";
+import { LegalNotice, Terms, Privacy } from "@/pages/LegalPages";
 
 function App() {
   return (
@@ -13,6 +15,10 @@ function App() {
           <BrowserRouter>
             <Routes>
               <Route path="/" element={<Dashboard />} />
+              <Route path="/admin" element={<AdminPage />} />
+              <Route path="/mentions-legales" element={<LegalNotice />} />
+              <Route path="/cgv" element={<Terms />} />
+              <Route path="/confidentialite" element={<Privacy />} />
             </Routes>
           </BrowserRouter>
           <Toaster position="top-right" richColors />

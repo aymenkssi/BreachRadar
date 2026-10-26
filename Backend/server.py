@@ -8,7 +8,6 @@ import json
 import asyncio
 import logging
 import requests
-import hashlib
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Any, Dict, Optional
@@ -67,10 +66,6 @@ class InvestigateRequest(BaseModel):
 
 class BatchRequest(BaseModel):
     targets: List[str]
-
-
-class PasswordCheckRequest(BaseModel):
-    password: str
 
 
 class WatchCreate(BaseModel):
@@ -195,22 +190,6 @@ def _get(url: str, params: dict = None, strict: bool = False) -> Any:
         if strict:
             raise
         return None
-
-
-def _pwned_password_count(password: str) -> int:
-    sha1 = hashlib.sha1(password.encode("utf-8")).hexdigest().upper()
-    prefix, suffix = sha1[:5], sha1[5:]
-    r = requests.get(f"https://api.pwnedpasswords.com/range/{prefix}", timeout=15,
-                     headers={"User-Agent": "BreachRadar/1.0", "Add-Padding": "true"})
-    r.raise_for_status()
-    for line in r.text.splitlines():
-        h, _, cnt = line.partition(":")
-        if h.strip() == suffix:
-            try:
-                return int(cnt.strip())
-            except ValueError:
-                return 0
-    return 0
 
 
 def parse_analytics(data: dict) -> Dict[str, Any]:
@@ -565,18 +544,6 @@ async def generate_report(inv_id: str, owner: Optional[str] = Depends(get_owner)
             {"$set": {"ai_report": inv.ai_report.model_dump(), "ai_generated": True}},
         )
     return inv
-
-
-@api_router.post("/check-password")
-async def check_password(req: PasswordCheckRequest):
-    if not req.password:
-        raise HTTPException(status_code=400, detail="Mot de passe vide")
-    try:
-        count = await asyncio.to_thread(_pwned_password_count, req.password)
-    except Exception as e:
-        logger.error(f"pwned password check failed: {e}")
-        raise HTTPException(status_code=502, detail="Service de vérification indisponible")
-    return {"pwned": count > 0, "count": count}
 
 
 @api_router.get("/history", response_model=List[Investigation])
