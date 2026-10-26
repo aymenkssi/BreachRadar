@@ -16,4 +16,4 @@ COPY . .
 RUN useradd --create-home --uid 1000 app
 USER app
 
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "2", "--proxy-headers"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "2", "--proxy-headers"]

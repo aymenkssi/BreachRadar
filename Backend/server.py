@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException
+from fastapi import FastAPI, APIRouter, Depends, HTTPException
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -11,11 +11,13 @@ import requests
 import hashlib
 from pathlib import Path
 from pydantic import BaseModel, Field
-from typing import List, Any, Dict
+from typing import List, Any, Dict, Optional
 import uuid
 from datetime import datetime, timezone
 
 import anthropic
+
+from security import get_owner
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -179,7 +181,8 @@ def severity_for(exposed: List[str], records: int) -> str:
     return "low"
 
 
-def _get(url: str, params: dict = None) -> Any:
+def _get(url: str, params: dict = None, strict: bool = False) -> Any:
+    # strict : lève en cas d'erreur réseau au lieu de renvoyer None (qui signifie « aucune fuite »)
     try:
         r = requests.get(url, params=params, timeout=20,
                          headers={"User-Agent": "BreachRadar/1.0"})
@@ -189,6 +192,8 @@ def _get(url: str, params: dict = None) -> Any:
         return r.json()
     except Exception as e:
         logger.warning(f"XON request failed {url}: {e}")
+        if strict:
+            raise
         return None
 
 
@@ -260,18 +265,18 @@ def parse_domain(data: dict) -> List[Breach]:
     return out
 
 
-async def gather_breaches(target: str, ttype: str) -> Dict[str, Any]:
+async def gather_breaches(target: str, ttype: str, strict: bool = False) -> Dict[str, Any]:
     if ttype == "email":
-        data = await asyncio.to_thread(_get, f"{XON_BASE}/breach-analytics", {"email": target})
+        data = await asyncio.to_thread(_get, f"{XON_BASE}/breach-analytics", {"email": target}, strict)
         if not data:
             return {"breaches": [], "risk_score": 0, "risk_label": ""}
         return parse_analytics(data)
     if ttype == "domain":
-        data = await asyncio.to_thread(_get, f"{XON_BASE}/breaches", {"domain": target})
+        data = await asyncio.to_thread(_get, f"{XON_BASE}/breaches", {"domain": target}, strict)
         breaches = parse_domain(data) if data else []
         return {"breaches": breaches, "risk_score": 0, "risk_label": ""}
     # username: match against full catalog
-    catalog = await asyncio.to_thread(_get, f"{XON_BASE}/breaches")
+    catalog = await asyncio.to_thread(_get, f"{XON_BASE}/breaches", None, strict)
     kw = target.strip().lower()
     matched = []
     for d in (catalog.get("exposedBreaches") if catalog else []) or []:
@@ -492,7 +497,7 @@ async def analyze_target(target: str):
     return ttype, breaches, stats
 
 
-async def build_investigation(target: str, with_ai: bool = True) -> Investigation:
+async def build_investigation(target: str, owner: Optional[str], with_ai: bool = True) -> Investigation:
     ttype, breaches, stats = await analyze_target(target)
     yearwise = compute_yearwise(breaches)
     data_categories = compute_data_categories(breaches)
@@ -508,20 +513,20 @@ async def build_investigation(target: str, with_ai: bool = True) -> Investigatio
         breaches=breaches, yearwise=yearwise, data_categories=data_categories,
         ai_report=ai_report, ai_generated=with_ai,
     )
-    await db.investigations.insert_one(inv.model_dump())
+    await db.investigations.insert_one({**inv.model_dump(), "owner": owner})
     return inv
 
 
 @api_router.post("/investigate", response_model=Investigation)
-async def investigate(req: InvestigateRequest):
+async def investigate(req: InvestigateRequest, owner: Optional[str] = Depends(get_owner)):
     target = req.target.strip()
     if not target:
         raise HTTPException(status_code=400, detail="Cible vide")
-    return await build_investigation(target, with_ai=True)
+    return await build_investigation(target, owner, with_ai=True)
 
 
 @api_router.post("/investigate/batch", response_model=List[Investigation])
-async def investigate_batch(req: BatchRequest):
+async def investigate_batch(req: BatchRequest, owner: Optional[str] = Depends(get_owner)):
     targets, seen = [], set()
     for t in req.targets:
         t = t.strip()
@@ -534,15 +539,15 @@ async def investigate_batch(req: BatchRequest):
     results = []
     for t in targets:
         try:
-            results.append(await build_investigation(t, with_ai=False))
+            results.append(await build_investigation(t, owner, with_ai=False))
         except Exception as e:
             logger.error(f"batch item failed {t}: {e}")
     return results
 
 
 @api_router.post("/investigation/{inv_id}/report", response_model=Investigation)
-async def generate_report(inv_id: str):
-    doc = await db.investigations.find_one({"id": inv_id}, {"_id": 0})
+async def generate_report(inv_id: str, owner: Optional[str] = Depends(get_owner)):
+    doc = await db.investigations.find_one({"id": inv_id, "owner": owner}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Investigation introuvable")
     inv = Investigation(**doc)
@@ -556,7 +561,7 @@ async def generate_report(inv_id: str):
         inv.ai_report = await generate_ai_report(inv.target, inv.target_type, stats, inv.breaches)
         inv.ai_generated = True
         await db.investigations.update_one(
-            {"id": inv_id},
+            {"id": inv_id, "owner": owner},
             {"$set": {"ai_report": inv.ai_report.model_dump(), "ai_generated": True}},
         )
     return inv
@@ -575,28 +580,31 @@ async def check_password(req: PasswordCheckRequest):
 
 
 @api_router.get("/history", response_model=List[Investigation])
-async def history():
-    docs = await db.investigations.find({}, {"_id": 0}).sort("created_at", -1).to_list(50)
+async def history(owner: Optional[str] = Depends(get_owner)):
+    if not owner:
+        return []
+    docs = await db.investigations.find({"owner": owner}, {"_id": 0}).sort("created_at", -1).to_list(50)
     return [Investigation(**d) for d in docs]
 
 
 @api_router.get("/investigation/{inv_id}", response_model=Investigation)
-async def get_investigation(inv_id: str):
-    doc = await db.investigations.find_one({"id": inv_id}, {"_id": 0})
+async def get_investigation(inv_id: str, owner: Optional[str] = Depends(get_owner)):
+    doc = await db.investigations.find_one({"id": inv_id, "owner": owner}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Investigation introuvable")
     return Investigation(**doc)
 
 
 @api_router.delete("/investigation/{inv_id}")
-async def delete_investigation(inv_id: str):
-    await db.investigations.delete_one({"id": inv_id})
+async def delete_investigation(inv_id: str, owner: Optional[str] = Depends(get_owner)):
+    await db.investigations.delete_one({"id": inv_id, "owner": owner})
     return {"ok": True}
 
 
 @api_router.delete("/history")
-async def clear_history():
-    await db.investigations.delete_many({})
+async def clear_history(owner: Optional[str] = Depends(get_owner)):
+    if owner:
+        await db.investigations.delete_many({"owner": owner})
     return {"ok": True}
 
 
@@ -619,12 +627,14 @@ async def _refresh_watch(watch: Watch) -> Watch:
 
 
 @api_router.post("/watchlist", response_model=Watch)
-async def add_watch(req: WatchCreate):
+async def add_watch(req: WatchCreate, owner: Optional[str] = Depends(get_owner)):
     target = req.target.strip()
     if not target:
         raise HTTPException(status_code=400, detail="Cible vide")
+    if not owner:
+        raise HTTPException(status_code=400, detail="Identifiant de navigateur manquant")
     existing = await db.watchlist.find_one(
-        {"target": {"$regex": f"^{re.escape(target)}$", "$options": "i"}}, {"_id": 0}
+        {"owner": owner, "target": {"$regex": f"^{re.escape(target)}$", "$options": "i"}}, {"_id": 0}
     )
     if existing:
         return Watch(**existing)
@@ -634,19 +644,21 @@ async def add_watch(req: WatchCreate):
         total_breaches=stats["total_breaches"], latest_breach=stats["latest_breach"],
         breach_names=sorted({b.name for b in breaches}),
     )
-    await db.watchlist.insert_one(watch.model_dump())
+    await db.watchlist.insert_one({**watch.model_dump(), "owner": owner})
     return watch
 
 
 @api_router.get("/watchlist", response_model=List[Watch])
-async def get_watchlist():
-    docs = await db.watchlist.find({}, {"_id": 0}).sort("created_at", -1).to_list(100)
+async def get_watchlist(owner: Optional[str] = Depends(get_owner)):
+    if not owner:
+        return []
+    docs = await db.watchlist.find({"owner": owner}, {"_id": 0}).sort("created_at", -1).to_list(100)
     return [Watch(**d) for d in docs]
 
 
 @api_router.post("/watchlist/{wid}/check", response_model=Watch)
-async def check_watch(wid: str):
-    doc = await db.watchlist.find_one({"id": wid}, {"_id": 0})
+async def check_watch(wid: str, owner: Optional[str] = Depends(get_owner)):
+    doc = await db.watchlist.find_one({"id": wid, "owner": owner}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Surveillance introuvable")
     watch = await _refresh_watch(Watch(**doc))
@@ -655,8 +667,10 @@ async def check_watch(wid: str):
 
 
 @api_router.post("/watchlist/check-all", response_model=List[Watch])
-async def check_all_watches():
-    docs = await db.watchlist.find({}, {"_id": 0}).to_list(100)
+async def check_all_watches(owner: Optional[str] = Depends(get_owner)):
+    if not owner:
+        return []
+    docs = await db.watchlist.find({"owner": owner}, {"_id": 0}).to_list(100)
     out = []
     for d in docs:
         try:
@@ -670,8 +684,8 @@ async def check_all_watches():
 
 
 @api_router.post("/watchlist/{wid}/seen", response_model=Watch)
-async def mark_watch_seen(wid: str):
-    doc = await db.watchlist.find_one({"id": wid}, {"_id": 0})
+async def mark_watch_seen(wid: str, owner: Optional[str] = Depends(get_owner)):
+    doc = await db.watchlist.find_one({"id": wid, "owner": owner}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Surveillance introuvable")
     await db.watchlist.update_one({"id": wid}, {"$set": {"has_new": False, "new_breaches": []}})
@@ -680,8 +694,8 @@ async def mark_watch_seen(wid: str):
 
 
 @api_router.delete("/watchlist/{wid}")
-async def delete_watch(wid: str):
-    await db.watchlist.delete_one({"id": wid})
+async def delete_watch(wid: str, owner: Optional[str] = Depends(get_owner)):
+    await db.watchlist.delete_one({"id": wid, "owner": owner})
     return {"ok": True}
 
 

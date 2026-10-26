@@ -45,8 +45,21 @@ Mise à jour sur le VPS : `./deploy.sh`.
    `requirements.txt` (inaccessible depuis les sessions cloud) ;
 3. sinon, ou en cas d'erreur, un rapport de repli basé sur les statistiques.
 
+## Comptes et Premium
+
+- `Backend/main.py` : point d'entrée de l'API (`server.py` + routes ci-dessous)
+- `accounts.py` : inscription avec code e-mail, connexion (JWT), mot de passe oublié
+- `billing.py` : abonnement PayPal mensuel/annuel, webhook, résiliation
+- `premium.py` : veille d'adresses vérifiées, alertes, rapport des mots de passe (sans jamais
+  afficher les mots de passe)
+- `scheduler.py` : passe quotidienne (conteneur `breachradar-scheduler`)
+- `mailer.py` : envoi SMTP (Brevo)
+
+L'historique et la liste de surveillance sont privés : liés au compte connecté, sinon au
+navigateur (en-tête `X-Client-Id`).
+
 ## Tests et lint
 
 ```bash
-cd Backend && python -m pytest -q && python -m flake8 .
+cd Backend && pip install -r requirements-dev.txt && python -m pytest -q && python -m flake8 .
 ```

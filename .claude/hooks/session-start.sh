@@ -26,7 +26,7 @@ fi
 
 # 2. Backend : dépendances Python.
 if [ -f Backend/requirements.txt ]; then
-  pip install --quiet --disable-pip-version-check -r Backend/requirements.txt
+  pip install --quiet --disable-pip-version-check -r Backend/requirements-dev.txt
 fi
 
 # 3. Frontend : dépendances Node (yarn).

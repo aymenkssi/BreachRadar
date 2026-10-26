@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { ShieldCheck, Radar, AlertTriangle, ShieldOff, Bell, Loader2 } from "lucide-react";
+import { ShieldCheck, Radar, AlertTriangle, ShieldOff, Bell, Loader2, Crown } from "lucide-react";
 import { SearchBar } from "@/components/investigation/SearchBar";
 import { ScoreGauge } from "@/components/investigation/ScoreGauge";
 import { StatsGrid } from "@/components/investigation/StatsGrid";
@@ -15,6 +15,8 @@ import { PasswordCheckDialog } from "@/components/investigation/PasswordCheckDia
 import { WatchlistSheet } from "@/components/investigation/WatchlistSheet";
 import { CompareDialog } from "@/components/investigation/CompareDialog";
 import { ThemeToggle } from "@/components/investigation/ThemeToggle";
+import { AccountSheet } from "@/components/account/AccountSheet";
+import { useAuth } from "@/components/AuthProvider";
 import { Button } from "@/components/ui/button";
 import { investigate, getHistory, deleteInvestigation, clearHistory, generateReport, getWatchlist, addWatch } from "@/lib/api";
 
@@ -46,6 +48,11 @@ export default function Dashboard() {
   const [watchlist, setWatchlist] = useState([]);
   const [categoryFilter, setCategoryFilter] = useState(null);
   const [watching, setWatching] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [accountTab, setAccountTab] = useState("premium");
+  const { user, ready } = useAuth();
+
+  const openAccount = (tab) => { setAccountTab(tab); setAccountOpen(true); };
 
   const loadHistory = async () => {
     try { setHistory(await getHistory()); } catch { /* noop */ }
@@ -53,7 +60,12 @@ export default function Dashboard() {
   const loadWatchlist = async () => {
     try { setWatchlist(await getWatchlist()); } catch { /* noop */ }
   };
-  useEffect(() => { loadHistory(); loadWatchlist(); }, []);
+  // Historique et surveillance sont propres au compte connecté (ou à ce navigateur)
+  useEffect(() => {
+    if (!ready) return;
+    loadHistory();
+    loadWatchlist();
+  }, [ready, user?.id]);
 
   const isWatched = result && watchlist.some((w) => w.target.toLowerCase() === result.target.toLowerCase());
 
@@ -140,6 +152,7 @@ export default function Dashboard() {
               <CompareDialog history={history} />
             </div>
             <WatchlistSheet watchlist={watchlist} onChange={loadWatchlist} />
+            <AccountSheet open={accountOpen} onOpenChange={setAccountOpen} tab={accountTab} onTabChange={setAccountTab} />
             <HistorySidebar history={history} onSelect={handleSelect} onDelete={handleDelete} onClear={handleClear} />
             <ThemeToggle />
           </div>
@@ -188,6 +201,20 @@ export default function Dashboard() {
                   {watching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bell className="h-4 w-4" />}
                   {isWatched ? "Sous surveillance" : "Surveiller cette cible"}
                 </Button>
+                {result.target_type === "email" && (
+                  <div className="mt-3 grid grid-cols-1 gap-2">
+                    <Button variant="ghost" size="sm" className="gap-2 text-primary" onClick={() => openAccount("monitors")}
+                      data-testid="premium-alerts-btn">
+                      <Crown className="h-4 w-4" /> Alerte e-mail à chaque nouvelle fuite
+                    </Button>
+                    {result.exposed_passwords && (
+                      <Button variant="ghost" size="sm" className="gap-2 text-primary" onClick={() => openAccount("passwords")}
+                        data-testid="premium-passwords-btn">
+                        <Crown className="h-4 w-4" /> Rapport détaillé des mots de passe
+                      </Button>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="flex flex-col justify-center gap-4 rounded-2xl border border-border bg-card/80 p-6 shadow-xl backdrop-blur-md lg:col-span-8">
                 <StatsGrid data={result} />

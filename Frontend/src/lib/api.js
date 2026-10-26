@@ -3,6 +3,40 @@ import axios from "axios";
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 export const API = `${BACKEND_URL}/api`;
 
+// ---------- Session et identifiant de navigateur ----------
+const TOKEN_KEY = "breachradar-token";
+const CLIENT_KEY = "breachradar-client-id";
+
+const store = {
+  get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
+  set: (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch { /* stockage indisponible */ } },
+};
+
+export const getToken = () => store.get(TOKEN_KEY);
+export const setToken = (token) => store.set(TOKEN_KEY, token);
+
+const newId = () =>
+  (crypto?.randomUUID ? crypto.randomUUID() : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+  }));
+
+// Historique et surveillance sont privés : liés au compte connecté, sinon à ce navigateur.
+let clientId = store.get(CLIENT_KEY);
+if (!clientId) { clientId = newId(); store.set(CLIENT_KEY, clientId); }
+
+axios.interceptors.request.use((config) => {
+  const token = getToken();
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  config.headers["X-Client-Id"] = clientId;
+  return config;
+});
+
+export const errorMessage = (e, fallback) => {
+  const detail = e?.response?.data?.detail;
+  return typeof detail === "string" ? detail : fallback;
+};
+
 export const investigate = (target) =>
   axios.post(`${API}/investigate`, { target }).then((r) => r.data);
 
@@ -39,3 +73,39 @@ export const markWatchSeen = (id) =>
 
 export const deleteWatch = (id) =>
   axios.delete(`${API}/watchlist/${id}`).then((r) => r.data);
+
+// ---------- Compte ----------
+export const register = (email, password) =>
+  axios.post(`${API}/auth/register`, { email, password }).then((r) => r.data);
+export const verifyAccount = (email, code) =>
+  axios.post(`${API}/auth/verify`, { email, code }).then((r) => r.data);
+export const resendAccountCode = (email) =>
+  axios.post(`${API}/auth/resend`, { email }).then((r) => r.data);
+export const login = (email, password) =>
+  axios.post(`${API}/auth/login`, { email, password }).then((r) => r.data);
+export const forgotPassword = (email) =>
+  axios.post(`${API}/auth/forgot`, { email }).then((r) => r.data);
+export const resetPassword = (email, code, password) =>
+  axios.post(`${API}/auth/reset`, { email, code, password }).then((r) => r.data);
+export const getMe = () => axios.get(`${API}/auth/me`).then((r) => r.data);
+
+// ---------- Abonnement ----------
+export const getBillingConfig = () => axios.get(`${API}/billing/config`).then((r) => r.data);
+export const activateSubscription = (subscriptionId) =>
+  axios.post(`${API}/billing/paypal/subscription`, { subscription_id: subscriptionId }).then((r) => r.data);
+export const cancelSubscription = () => axios.post(`${API}/billing/cancel`).then((r) => r.data);
+
+// ---------- Premium ----------
+export const getMonitors = () => axios.get(`${API}/premium/monitors`).then((r) => r.data);
+export const addMonitor = (email) =>
+  axios.post(`${API}/premium/monitors`, { email }).then((r) => r.data);
+export const verifyMonitor = (id, code) =>
+  axios.post(`${API}/premium/monitors/${id}/verify`, { code }).then((r) => r.data);
+export const resendMonitorCode = (id) =>
+  axios.post(`${API}/premium/monitors/${id}/resend`).then((r) => r.data);
+export const markMonitorSeen = (id) =>
+  axios.post(`${API}/premium/monitors/${id}/seen`).then((r) => r.data);
+export const deleteMonitor = (id) =>
+  axios.delete(`${API}/premium/monitors/${id}`).then((r) => r.data);
+export const getPasswordReport = (email) =>
+  axios.get(`${API}/premium/password-report`, { params: { email } }).then((r) => r.data);

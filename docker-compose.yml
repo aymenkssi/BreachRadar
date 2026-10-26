@@ -2,6 +2,33 @@
 # termine le HTTPS (Let's Encrypt) et route breachradar.fr vers les conteneurs.
 # Secrets dans ./.env (voir .env.example), jamais dans ce fichier.
 
+x-backend-env: &backend-env
+  MONGO_URL: mongodb://breachradar_admin:${MONGO_ROOT_PASSWORD}@mongodb:27017/?authSource=admin
+  DB_NAME: breachradar
+  CORS_ORIGINS: https://breachradar.fr
+  FRONTEND_URL: https://breachradar.fr
+  JWT_SECRET: ${JWT_SECRET:?définir JWT_SECRET dans .env}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-5-5}
+  EMERGENT_LLM_KEY: ${EMERGENT_LLM_KEY:-}
+  EMERGENT_PROVIDER: ${EMERGENT_PROVIDER:-gemini}
+  EMERGENT_MODEL: ${EMERGENT_MODEL:-gemini-3.1-pro-preview}
+  SMTP_HOST: ${SMTP_HOST:-smtp-relay.brevo.com}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_SECURITY: ${SMTP_SECURITY:-starttls}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  SMTP_FROM: ${SMTP_FROM:-}
+  PAYPAL_MODE: ${PAYPAL_MODE:-sandbox}
+  PAYPAL_CLIENT_ID: ${PAYPAL_CLIENT_ID:-}
+  PAYPAL_SECRET: ${PAYPAL_SECRET:-}
+  PAYPAL_WEBHOOK_ID: ${PAYPAL_WEBHOOK_ID:-}
+  PAYPAL_PLAN_MONTHLY: ${PAYPAL_PLAN_MONTHLY:-}
+  PAYPAL_PLAN_YEARLY: ${PAYPAL_PLAN_YEARLY:-}
+  PRICE_MONTHLY_LABEL: ${PRICE_MONTHLY_LABEL:-4,99 €}
+  PRICE_YEARLY_LABEL: ${PRICE_YEARLY_LABEL:-49,99 €}
+  MONITOR_LIMIT: ${MONITOR_LIMIT:-5}
+
 services:
   mongodb:
     image: mongo:7
@@ -19,15 +46,7 @@ services:
     build: ./Backend
     container_name: breachradar-backend
     restart: always
-    environment:
-      MONGO_URL: mongodb://breachradar_admin:${MONGO_ROOT_PASSWORD}@mongodb:27017/?authSource=admin
-      DB_NAME: breachradar
-      CORS_ORIGINS: https://breachradar.fr
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-5-5}
-      EMERGENT_LLM_KEY: ${EMERGENT_LLM_KEY:-}
-      EMERGENT_PROVIDER: ${EMERGENT_PROVIDER:-gemini}
-      EMERGENT_MODEL: ${EMERGENT_MODEL:-gemini-3.1-pro-preview}
+    environment: *backend-env
     depends_on:
       - mongodb
     networks:
@@ -41,6 +60,18 @@ services:
       - traefik.http.routers.breachradar-api.entrypoints=websecure
       - traefik.http.routers.breachradar-api.tls.certresolver=letsencrypt
       - traefik.http.services.breachradar-api.loadbalancer.server.port=8001
+
+  # Veille quotidienne des adresses surveillées et relecture des abonnements PayPal
+  scheduler:
+    build: ./Backend
+    container_name: breachradar-scheduler
+    restart: always
+    command: ["python", "scheduler.py"]
+    environment: *backend-env
+    depends_on:
+      - mongodb
+    networks:
+      - internal
 
   frontend:
     build: ./Frontend

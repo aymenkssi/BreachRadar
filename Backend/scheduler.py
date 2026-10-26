@@ -1,0 +1,32 @@
+# Planificateur (conteneur « scheduler ») : vérifie chaque jour les adresses surveillées et
+# envoie les alertes, puis relit les abonnements PayPal en cours (au cas où un webhook serait perdu).
+import asyncio
+import logging
+import os
+
+import server  # noqa: F401  (configure la journalisation et la base)
+from billing import refresh_subscriptions
+from premium import run_monitor_checks
+
+logger = logging.getLogger("scheduler")
+INTERVAL_HOURS = float(os.environ.get("MONITOR_INTERVAL_HOURS", "24"))
+
+
+async def run_once() -> None:
+    alerted = await run_monitor_checks()
+    logger.info(f"Veille terminée : {alerted} adresse(s) avec de nouvelles fuites")
+    await refresh_subscriptions()
+
+
+async def main() -> None:
+    logger.info(f"Planificateur démarré (toutes les {INTERVAL_HOURS} h)")
+    while True:
+        try:
+            await run_once()
+        except Exception as e:
+            logger.exception(f"Passe du planificateur échouée : {e}")
+        await asyncio.sleep(INTERVAL_HOURS * 3600)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
