@@ -1,0 +1,155 @@
+{
+  "project_title": "BreachRadar AI - Threat Intelligence & Compromise Investigation Dashboard",
+  "app_type": "dashboard",
+  "theme": {
+    "default_mode": "dark",
+    "theme_toggle_supported": true,
+    "primary_archetype": "THE PERFORMANCE PRO / TACTICAL COMMAND CENTER",
+    "color_palette": {
+      "dark": {
+        "background": "#090D16",
+        "surface_card": "#0F172A",
+        "surface_card_hover": "#1E293B",
+        "border": "#1E293B",
+        "border_highlight": "#334155",
+        "primary_accent": "#38BDF8",
+        "primary_gradient": "linear-gradient(135deg, #0284C7 0%, #2563EB 100%)",
+        "severity_critical": "#EF4444",
+        "severity_high": "#F97316",
+        "severity_medium": "#F59E0B",
+        "severity_low": "#10B981",
+        "text_primary": "#F8FAFC",
+        "text_secondary": "#94A3B8",
+        "text_muted": "#64748B",
+        "terminal_green": "#22C55E"
+      },
+      "light": {
+        "background": "#F8FAFC",
+        "surface_card": "#FFFFFF",
+        "surface_card_hover": "#F1F5F9",
+        "border": "#E2E8F0",
+        "border_highlight": "#CBD5E1",
+        "primary_accent": "#0284C7",
+        "primary_gradient": "linear-gradient(135deg, #0369A1 0%, #1D4ED8 100%)",
+        "severity_critical": "#DC2626",
+        "severity_high": "#EA580C",
+        "severity_medium": "#D97706",
+        "severity_low": "#059669",
+        "text_primary": "#0F172A",
+        "text_secondary": "#475569",
+        "text_muted": "#64748B",
+        "terminal_green": "#16A34A"
+      }
+    }
+  },
+  "typography": {
+    "fonts": {
+      "headings": "Cabinet Grotesk, Space Grotesk, sans-serif",
+      "body": "Plus Jakarta Sans, Inter, sans-serif",
+      "mono": "JetBrains Mono, Fira Code, monospace"
+    },
+    "font_imports": [
+      "https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap"
+    ],
+    "scale": {
+      "hero_title": "text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight",
+      "section_heading": "text-xl sm:text-2xl font-bold tracking-tight",
+      "card_title": "text-base sm:text-lg font-semibold tracking-wide",
+      "data_metric": "text-3xl sm:text-4xl font-extrabold font-mono tracking-wider",
+      "body_text": "text-sm sm:text-base leading-relaxed text-slate-300 dark:text-slate-300 text-slate-700",
+      "caption": "text-xs font-mono tracking-wider uppercase"
+    }
+  },
+  "layout_and_spacing": {
+    "grid_structure": {
+      "dashboard_base": "grid grid-cols-1 lg:grid-cols-12 gap-6",
+      "hero_investigation_bar": "col-span-full",
+      "score_gauge_widget": "col-span-12 lg:col-span-4",
+      "threat_summary_widget": "col-span-12 lg:col-span-8",
+      "ai_report_panel": "col-span-12 lg:col-span-5",
+      "breach_table_panel": "col-span-12 lg:col-span-7",
+      "history_drawer": "fixed or slide-over panel on left/right"
+    },
+    "card_padding": "p-5 sm:p-6",
+    "border_radius": "rounded-xl border border-slate-800 dark:border-slate-800 border-slate-200",
+    "surface_style": "bg-slate-900/80 backdrop-blur-md shadow-xl transition-all duration-200"
+  },
+  "key_components": [
+    {
+      "name": "Investigation Header & Keyword Bar",
+      "features": [
+        "Search input with support for Email, Domain, or Username detection",
+        "Quick target type selector pills (Email / Domain / Username / Auto-Detect)",
+        "Pulse scanning button with loading spinner & sound/vibration toggle indicator",
+        "Demo preset buttons (e.g. 'test@example.com', 'adobe.com', 'admin_root') for quick 1-click testing"
+      ],
+      "data_testid": "investigation-search-bar"
+    },
+    {
+      "name": "Compromise Score Gauge Meter",
+      "features": [
+        "Radial or semi-circle gauge (0 to 100 score) with color transition (Green -> Yellow -> Orange -> Red)",
+        "Pulsing status badge ('Critical Risk', 'High Risk', 'Moderate Risk', 'Clean')",
+        "Key risk indicators breakdown: Total Breaches, Exposed Passwords count, Data Classes count, First/Latest breach date"
+      ],
+      "data_testid": "compromise-score-gauge"
+    },
+    {
+      "name": "LLM AI Risk Report Panel",
+      "features": [
+        "Streaming response animation simulating real-time AI security intelligence analysis",
+        "Threat Level Badge with animated pulse beacon",
+        "Executive Threat Summary text formatted in structured markdown style",
+        "Attack Vectors & Data Exposure analysis breakdown",
+        "Actionable Security Recommendations list with checkable remediation steps",
+        "Export Report button (JSON / Text / PDF preview modal)"
+      ],
+      "data_testid": "ai-risk-report-panel"
+    },
+    {
+      "name": "Breach Results Table",
+      "features": [
+        "Interactive filter tabs (All, Critical, High, Passwords Exposed, Verified Only)",
+        "Column headers: Breach Source/Name, Date, Exposed Data Classes, Compromise Severity, Action",
+        "Badges for data classes (e.g. Passwords, IP Addresses, Credit Cards, SSN, Emails)",
+        "Expandable row detail drawer with breach full description, logo icon, and leak vectors",
+        "Search within breach results table & sort by date/severity"
+      ],
+      "data_testid": "breach-results-table"
+    },
+    {
+      "name": "Investigation History Sidebar/Modal",
+      "features": [
+        "Chronological history list of conducted investigations stored in local storage",
+        "Quick reload keyword button & breach count badge",
+        "Clear history & export history tools"
+      ],
+      "data_testid": "investigation-history-list"
+    },
+    {
+      "name": "Empty & Loading State Radar Scan",
+      "features": [
+        "Tactical radar pulse sweep animation while investigation is in progress",
+        "Zero-state security banner with search prompt instructions"
+      ],
+      "data_testid": "radar-scanning-state"
+    }
+  ],
+  "image_assets": {
+    "background_dashboard": "https://images.unsplash.com/photo-1551288049-bebda4e38f71?crop=entropy&cs=srgb&fm=jpg&q=85",
+    "breach_concept_banner": "https://images.pexels.com/photos/5483248/pexels-photo-5483248.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940"
+  },
+  "motion_and_effects": {
+    "hover_states": "hover:-translate-y-0.5 hover:shadow-cyan-500/10 transition-transform duration-200",
+    "radar_scan_animation": "relative overflow-hidden before:absolute before:inset-0 before:bg-gradient-to-r before:from-transparent before:via-cyan-500/20 before:to-transparent before:animate-pulse",
+    "glowing_card_border": "border border-cyan-500/20 hover:border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.15)]"
+  },
+  "instructions_to_main_agent": [
+    "Build a sleek, high-density enterprise security dashboard in React with Tailwind CSS and Lucide React icons.",
+    "Integrate free real breach data APIs (e.g., HaveIBeenPwned public API endpoints, leak-lookup, or fallback robust simulated real-world leak database with 50+ detailed breach records like HaveIBeenPwned, Canva, LinkedIn, Wattpad, Chegg, Deezer, Evite, MySpace, Zynga, T-Mobile, etc. when rate limited or offline).",
+    "Use FastAPI / OpenAI or local LLM proxy endpoint on the backend to generate dynamic streaming AI risk report analyses based on detected breach data.",
+    "Ensure dark mode is the primary default theme, with a smooth toggle switch for light mode.",
+    "Add 'data-testid' attributes to ALL buttons, inputs, tables, gauges, and interactive cards for testing compliance.",
+    "Avoid generic unstyled UI. Use glowing status indicators, crisp font pairings (Space Grotesk + JetBrains Mono), and micro-animations on search and table interactions."
+  ]
+}
