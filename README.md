@@ -22,14 +22,16 @@ cp Frontend/.env.example Frontend/.env
 cd Frontend && yarn install && yarn start
 ```
 
+## Production
+
+Publié sur https://breachradar.fr via Docker Compose + Traefik : voir [DEPLOIEMENT.md](DEPLOIEMENT.md).
+Mise à jour sur le VPS : `./deploy.sh`.
+
 ## Sessions Claude Code (cloud)
 
 `.claude/hooks/session-start.sh` s'exécute à chaque ouverture de session :
 1. `git pull --ff-only` de la branche courante (ignoré s'il y a des modifications locales) ;
 2. installation des dépendances Python et Node.
-
-Les paquets front `@emergentbase/*` (overlay de l'éditeur Emergent) ne sont pas accessibles
-depuis le cloud : le script les ignore, `craco.config.js` fonctionne sans eux.
 
 ## Rapport IA
 

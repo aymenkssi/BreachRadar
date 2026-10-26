@@ -1,0 +1,71 @@
+# Même modèle que les autres applications du VPS : Traefik (réseau externe « web »)
+# termine le HTTPS (Let's Encrypt) et route breachradar.fr vers les conteneurs.
+# Secrets dans ./.env (voir .env.example), jamais dans ce fichier.
+
+services:
+  mongodb:
+    image: mongo:7
+    container_name: breachradar-mongodb
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: breachradar_admin
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?définir MONGO_ROOT_PASSWORD dans .env}
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - internal
+
+  backend:
+    build: ./Backend
+    container_name: breachradar-backend
+    restart: always
+    environment:
+      MONGO_URL: mongodb://breachradar_admin:${MONGO_ROOT_PASSWORD}@mongodb:27017/?authSource=admin
+      DB_NAME: breachradar
+      CORS_ORIGINS: https://breachradar.fr
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-5-5}
+    depends_on:
+      - mongodb
+    networks:
+      - internal
+      - web
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=web
+      - traefik.http.routers.breachradar-api.rule=Host(`breachradar.fr`) && PathPrefix(`/api`)
+      - traefik.http.routers.breachradar-api.priority=100
+      - traefik.http.routers.breachradar-api.entrypoints=websecure
+      - traefik.http.routers.breachradar-api.tls.certresolver=letsencrypt
+      - traefik.http.services.breachradar-api.loadbalancer.server.port=8001
+
+  frontend:
+    build: ./Frontend
+    container_name: breachradar-frontend
+    restart: always
+    depends_on:
+      - backend
+    networks:
+      - web
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=web
+      - traefik.http.routers.breachradar.rule=Host(`breachradar.fr`) || Host(`www.breachradar.fr`)
+      - traefik.http.routers.breachradar.priority=1
+      - traefik.http.routers.breachradar.entrypoints=websecure
+      - traefik.http.routers.breachradar.tls.certresolver=letsencrypt
+      # Une seule URL canonique : www.breachradar.fr -> breachradar.fr (301)
+      - traefik.http.middlewares.breachradar-www-redirect.redirectregex.regex=^https?://www\.breachradar\.fr/(.*)
+      - traefik.http.middlewares.breachradar-www-redirect.redirectregex.replacement=https://breachradar.fr/$${1}
+      - traefik.http.middlewares.breachradar-www-redirect.redirectregex.permanent=true
+      - traefik.http.routers.breachradar.middlewares=breachradar-www-redirect
+      - traefik.http.services.breachradar.loadbalancer.server.port=80
+
+volumes:
+  mongo_data:
+
+networks:
+  web:
+    external: true
+  internal:
+    driver: bridge

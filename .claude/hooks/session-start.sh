@@ -30,24 +30,6 @@ if [ -f Backend/requirements.txt ]; then
 fi
 
 # 3. Frontend : dépendances Node (yarn).
-#    Les paquets @emergentbase/* sont hébergés sur assets.emergent.sh (bloqué ici) et
-#    craco.config.js fonctionne sans eux : on les retire le temps de l'installation.
 if [ -f Frontend/package.json ]; then
-  cd Frontend
-  if ! yarn install --non-interactive --silent 2>/dev/null; then
-    cp package.json /tmp/breachradar-package.json.bak
-    cp yarn.lock /tmp/breachradar-yarn.lock.bak
-    node -e '
-      const fs = require("fs");
-      const p = JSON.parse(fs.readFileSync("package.json", "utf8"));
-      for (const k of Object.keys(p.devDependencies || {}))
-        if (k.startsWith("@emergentbase/")) delete p.devDependencies[k];
-      fs.writeFileSync("package.json", JSON.stringify(p, null, 2) + "\n");
-    '
-    status=0
-    yarn install --non-interactive --silent || status=$?
-    cp /tmp/breachradar-package.json.bak package.json
-    cp /tmp/breachradar-yarn.lock.bak yarn.lock
-    exit "$status"
-  fi
+  (cd Frontend && yarn install --non-interactive --silent)
 fi
