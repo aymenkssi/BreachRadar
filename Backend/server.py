@@ -4,6 +4,7 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import re
+import json
 import asyncio
 import logging
 import requests
@@ -23,7 +24,12 @@ mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
+# Rapport IA : clé Anthropic en priorité, sinon clé universelle Emergent, sinon rapport de repli.
+ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
 ANTHROPIC_MODEL = os.environ.get('ANTHROPIC_MODEL', 'claude-opus-5-5')
+EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY')
+EMERGENT_PROVIDER = os.environ.get('EMERGENT_PROVIDER', 'gemini')
+EMERGENT_MODEL = os.environ.get('EMERGENT_MODEL', 'gemini-3.1-pro-preview')
 _llm_client = None
 
 
@@ -407,26 +413,51 @@ async def generate_ai_report(target: str, ttype: str, stats: Dict, breaches: Lis
         )
 
     try:
-        resp = await get_llm_client().beta.messages.create(
-            model=ANTHROPIC_MODEL,
-            max_tokens=16000,
-            system=system,
-            messages=[{"role": "user", "content": context}],
-            output_config={
-                "effort": "medium",
-                "format": {"type": "json_schema", "schema": AI_REPORT_SCHEMA},
-            },
-            # En cas de refus des filtres de sécurité, l'API relance sur le modèle de repli recommandé.
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",
-        )
-        if resp.stop_reason != "end_turn":
-            raise RuntimeError(f"réponse incomplète (stop_reason={resp.stop_reason})")
-        text = next(b.text for b in resp.content if b.type == "text")
-        return AiReport.model_validate_json(text)
+        if ANTHROPIC_API_KEY:
+            return await _report_via_anthropic(system, context)
+        if EMERGENT_LLM_KEY:
+            return await _report_via_emergent(system, context)
+        logger.info("Aucune clé IA configurée : rapport de repli")
     except Exception as e:
         logger.error(f"AI report generation failed: {e}")
-        return fallback_report(stats)
+    return fallback_report(stats)
+
+
+async def _report_via_anthropic(system: str, context: str) -> AiReport:
+    resp = await get_llm_client().beta.messages.create(
+        model=ANTHROPIC_MODEL,
+        max_tokens=16000,
+        system=system,
+        messages=[{"role": "user", "content": context}],
+        output_config={
+            "effort": "medium",
+            "format": {"type": "json_schema", "schema": AI_REPORT_SCHEMA},
+        },
+        # En cas de refus des filtres de sécurité, l'API relance sur le modèle de repli recommandé.
+        betas=["server-side-fallback-2026-07-01"],
+        fallbacks="default",
+    )
+    if resp.stop_reason != "end_turn":
+        raise RuntimeError(f"réponse incomplète (stop_reason={resp.stop_reason})")
+    text = next(b.text for b in resp.content if b.type == "text")
+    return AiReport.model_validate_json(text)
+
+
+async def _report_via_emergent(system: str, context: str) -> AiReport:
+    # Paquet de l'index privé Emergent, installé par le Dockerfile ; importé seulement ici.
+    from emergentintegrations.llm.chat import LlmChat, UserMessage
+
+    system += (
+        "\nRéponds STRICTEMENT avec un objet JSON valide, sans texte autour, respectant ce schéma JSON :\n"
+        + json.dumps(AI_REPORT_SCHEMA, ensure_ascii=False)
+    )
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=str(uuid.uuid4()),
+                   system_message=system).with_model(EMERGENT_PROVIDER, EMERGENT_MODEL)
+    text = str(await chat.send_message(UserMessage(text=context))).strip()
+    start, end = text.find("{"), text.rfind("}")
+    if start < 0 or end < start:
+        raise ValueError("aucun objet JSON dans la réponse")
+    return AiReport.model_validate_json(text[start:end + 1])
 
 
 def fallback_report(stats: Dict) -> AiReport:

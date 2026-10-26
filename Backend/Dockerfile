@@ -7,7 +7,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt
+    && pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir "emergentintegrations==0.2.0" \
+       --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/
 
 COPY . .
 

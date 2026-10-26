@@ -25,6 +25,9 @@ services:
       CORS_ORIGINS: https://breachradar.fr
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-5-5}
+      EMERGENT_LLM_KEY: ${EMERGENT_LLM_KEY:-}
+      EMERGENT_PROVIDER: ${EMERGENT_PROVIDER:-gemini}
+      EMERGENT_MODEL: ${EMERGENT_MODEL:-gemini-3.1-pro-preview}
     depends_on:
       - mongodb
     networks:

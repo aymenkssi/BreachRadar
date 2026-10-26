@@ -35,9 +35,15 @@ Mise à jour sur le VPS : `./deploy.sh`.
 
 ## Rapport IA
 
-`generate_ai_report` appelle Claude (`ANTHROPIC_MODEL`, par défaut `claude-opus-5-5`) avec une
-sortie structurée (schéma JSON `AI_REPORT_SCHEMA`) et le repli automatique côté serveur en cas
-de refus. Sans clé ou en cas d'erreur, un rapport de repli basé sur les statistiques est renvoyé.
+`generate_ai_report` choisit le fournisseur selon les clés présentes :
+
+1. `ANTHROPIC_API_KEY` : Claude (`ANTHROPIC_MODEL`, par défaut `claude-opus-5-5`), sortie
+   structurée (schéma `AI_REPORT_SCHEMA`) et repli serveur en cas de refus ;
+2. sinon `EMERGENT_LLM_KEY` : clé universelle Emergent via `emergentintegrations`
+   (`EMERGENT_PROVIDER` / `EMERGENT_MODEL`, par défaut Gemini comme la version d'origine).
+   Ce paquet vient de l'index privé Emergent : le Dockerfile l'installe, il n'est pas dans
+   `requirements.txt` (inaccessible depuis les sessions cloud) ;
+3. sinon, ou en cas d'erreur, un rapport de repli basé sur les statistiques.
 
 ## Tests et lint
 

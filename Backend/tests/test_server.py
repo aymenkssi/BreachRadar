@@ -1,6 +1,7 @@
 import asyncio
 import json
-from types import SimpleNamespace
+import sys
+from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -74,6 +75,7 @@ def fake_llm(response=None, error=None):
 
 
 def run_report(monkeypatch, llm, breaches):
+    monkeypatch.setattr(server, "ANTHROPIC_API_KEY", "sk-ant-test")
     monkeypatch.setattr(server, "get_llm_client", lambda: llm)
     stats = compute_stats(breaches, 0, "")
     return asyncio.run(server.generate_ai_report("alice@example.com", "email", stats, breaches))
@@ -106,3 +108,59 @@ def test_generate_ai_report_falls_back_on_refusal(monkeypatch):
 
 def test_schema_matches_ai_report_fields():
     assert set(server.AI_REPORT_SCHEMA["required"]) == set(server.AiReport.model_fields)
+
+
+def install_fake_emergent(monkeypatch, reply):
+    calls = {}
+
+    class LlmChat:
+        def __init__(self, api_key, session_id, system_message):
+            calls["system"] = system_message
+
+        def with_model(self, provider, model):
+            calls["model"] = (provider, model)
+            return self
+
+        async def send_message(self, message):
+            calls["text"] = message.text
+            return reply
+
+    chat_mod = ModuleType("emergentintegrations.llm.chat")
+    chat_mod.LlmChat = LlmChat
+    chat_mod.UserMessage = lambda text: SimpleNamespace(text=text)
+    monkeypatch.setitem(sys.modules, "emergentintegrations", ModuleType("emergentintegrations"))
+    monkeypatch.setitem(sys.modules, "emergentintegrations.llm", ModuleType("emergentintegrations.llm"))
+    monkeypatch.setitem(sys.modules, "emergentintegrations.llm.chat", chat_mod)
+    return calls
+
+
+def run_emergent_report(monkeypatch, breaches):
+    monkeypatch.setattr(server, "ANTHROPIC_API_KEY", None)
+    monkeypatch.setattr(server, "EMERGENT_LLM_KEY", "sk-emergent-test")
+    stats = compute_stats(breaches, 0, "")
+    return asyncio.run(server.generate_ai_report("example.com", "domain", stats, breaches))
+
+
+def test_emergent_key_used_without_anthropic_key(monkeypatch):
+    calls = install_fake_emergent(monkeypatch, "```json\n" + json.dumps(REPORT) + "\n```")
+    report = run_emergent_report(monkeypatch, [make_breach(exposed_data=["Passwords"])])
+    assert report.model_dump() == REPORT
+    assert calls["model"] == (server.EMERGENT_PROVIDER, server.EMERGENT_MODEL)
+    assert '"threat_level"' in calls["system"]
+
+
+def test_emergent_invalid_reply_falls_back(monkeypatch):
+    install_fake_emergent(monkeypatch, "désolé, pas de JSON")
+    report = run_emergent_report(monkeypatch, [])
+    assert "indisponible" in report.executive_summary
+
+
+def test_no_key_returns_fallback_without_calling(monkeypatch):
+    monkeypatch.setattr(server, "ANTHROPIC_API_KEY", None)
+    monkeypatch.setattr(server, "EMERGENT_LLM_KEY", None)
+    llm, create = fake_llm()
+    monkeypatch.setattr(server, "get_llm_client", lambda: llm)
+    stats = compute_stats([], 0, "")
+    report = asyncio.run(server.generate_ai_report("a@b.fr", "email", stats, []))
+    assert report.threat_level == "Clean"
+    create.assert_not_called()

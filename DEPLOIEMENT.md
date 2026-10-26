@@ -24,7 +24,7 @@ cd /var/www            # même emplacement que les autres applications
 git clone https://github.com/aymenkssi/BreachRadar.git breachradar
 cd breachradar
 cp .env.example .env
-nano .env              # MONGO_ROOT_PASSWORD=$(openssl rand -hex 24), ANTHROPIC_API_KEY=...
+nano .env              # MONGO_ROOT_PASSWORD=$(openssl rand -hex 24) + EMERGENT_LLM_KEY ou ANTHROPIC_API_KEY
 chmod 600 .env
 ./deploy.sh
 ```
