@@ -44,9 +44,16 @@ JWT_SECRET=...                 # openssl rand -hex 32 (déjà présent si Premiu
 ADMIN_EMAILS=vous@exemple.fr   # adresse(s) des administrateurs, séparées par des virgules
 ```
 
-Puis `./deploy.sh`, créer un compte sur le site avec cette adresse (code reçu par e-mail) et
-ouvrir **Mon compte → Administration** (ou https://breachradar.fr/admin). Si les e-mails ne
-sont pas encore configurés, renseigner d'abord `SMTP_*` dans `.env` pour recevoir le code.
+Puis `./deploy.sh` et créer le compte administrateur directement sur le serveur, sans code
+par e-mail (utile tant que l'envoi d'e-mails n'est pas configuré) :
+
+```bash
+docker compose exec backend python create_admin.py admin@breachradar.fr
+```
+
+Le mot de passe est demandé deux fois. La même commande réinitialise le mot de passe d'un compte
+existant. Se connecter ensuite sur le site, puis **Mon compte → Administration**
+(ou https://breachradar.fr/admin).
 
 ### Onglets de l'administration
 

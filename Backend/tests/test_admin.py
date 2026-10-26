@@ -269,3 +269,18 @@ def test_yearly_renewal_reminder_sent_once(env):  # noqa: F811
     assert c.portal.call(billing.send_renewal_reminders) == 1
     assert "renouvelé" in env["sent"][0]["Subject"]
     assert c.portal.call(billing.send_renewal_reminders) == 0
+
+
+def test_create_admin_without_email_code(env, monkeypatch):  # noqa: F811
+    import create_admin
+    monkeypatch.setattr(create_admin, "db", env["db"])
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@breachradar.fr")
+    c = env["client"]
+    # Un compte non confirmé existant (inscription commencée) est réparé, sans e-mail
+    c.post("/api/auth/register", json={"email": "admin@breachradar.fr", "password": "ancien123", "accept_terms": True})
+    env["sent"].clear()
+    c.portal.call(create_admin.create_admin, "Admin@BreachRadar.fr", "nouveau-mdp1")
+    assert env["sent"] == []
+    r = c.post("/api/auth/login", json={"email": "admin@breachradar.fr", "password": "nouveau-mdp1"})
+    assert r.status_code == 200 and r.json()["user"]["is_admin"] is True
+    assert c.portal.call(env["db"].users.count_documents, {"email": "admin@breachradar.fr"}) == 1
