@@ -1,7 +1,8 @@
 # Codes promo créés dans l'administration et saisis par le client avant le paiement.
 #  - percent / amount : réduction en % ou en € sur la première échéance (once), pendant N mois
 #    (repeating) ou sur toute la durée (forever). Stripe applique un coupon ; PayPal n'a pas de coupon
-#    d'abonnement : le prix réduit y est fixé à la création de l'abonnement, donc seulement « forever ».
+#    d'abonnement : un plan PayPal dédié au code est créé, avec une période d'essai au prix réduit
+#    (éventuellement gratuite) suivie du tarif normal, ou un tarif réduit permanent pour « forever ».
 #  - free : N jours de Premium offerts, sans paiement.
 # Chaque code peut être limité à une formule, à un nombre d'utilisations et à une date ; un compte
 # ne peut utiliser un code qu'une fois.
@@ -26,7 +27,7 @@ public_router = APIRouter(prefix="/api/billing/promo", tags=["promos"])
 
 PLANS = ("monthly", "yearly")
 PLAN_LABELS = {"monthly": "mensuelle", "yearly": "annuelle"}
-MIN_PAYPAL_PRICE = Decimal("0.50")  # PayPal refuse un abonnement à (presque) 0 € ; Stripe accepte 0 €
+MIN_PAYPAL_PRICE = Decimal("0.50")  # tarif permanent minimal d'un plan PayPal (l'essai peut être gratuit)
 CODE_PATTERN = r"^[A-Z0-9_-]{3,32}$"
 
 
@@ -59,8 +60,20 @@ def describe(promo: dict) -> str:
     return f"{amount} {period}"
 
 
-def paypal_compatible(promo: dict) -> bool:
-    return promo["kind"] != "free" and promo["duration"] == "forever"
+def paypal_ok_for(promo: dict, after: Decimal) -> bool:
+    """Réduction limitée dans le temps : période d'essai PayPal (même gratuite). Réduction permanente :
+    le tarif réduit doit rester d'au moins 0,50 € (un abonnement PayPal ne peut pas être gratuit pour toujours)."""
+    return promo["kind"] != "free" and (promo["duration"] != "forever" or after >= MIN_PAYPAL_PRICE)
+
+
+def trial_cycles(promo: dict, plan: str) -> int:
+    """Nombre d'échéances au prix réduit avant le tarif normal (0 : réduction sur toute la durée).
+    Formule annuelle : « pendant N mois » couvre la première année, comme le coupon Stripe."""
+    if promo["duration"] == "forever":
+        return 0
+    if promo["duration"] == "repeating" and plan == "monthly":
+        return promo["duration_months"]
+    return 1
 
 
 def public_promo(p: dict) -> dict:
@@ -132,15 +145,11 @@ async def check(req: PromoCheck, user: dict = Depends(current_user)):
         raise HTTPException(status_code=400, detail="Prix de la formule non configuré.")
     after = discounted(promo, price)
     stripe_ok = cfg.stripe_ready
-    paypal_ok = cfg.paypal_ready and paypal_compatible(promo) and after >= MIN_PAYPAL_PRICE
+    paypal_ok = cfg.paypal_ready and paypal_ok_for(promo, after)
     if (cfg.stripe_ready or cfg.paypal_ready) and not (stripe_ok or paypal_ok):
         # Seul PayPal est proposé et le code n'y est pas utilisable : on dit pourquoi
-        if not paypal_compatible(promo):
-            detail = ("Ce code porte sur une durée limitée : il ne s'applique qu'au paiement par carte "
-                      "bancaire (Stripe), qui n'est pas proposé pour le moment.")
-        else:
-            detail = "Avec PayPal, le prix réduit doit rester d'au moins 0,50 €."
-        raise HTTPException(status_code=400, detail=detail)
+        raise HTTPException(status_code=400, detail="Avec PayPal, une réduction sur toute la durée doit "
+                                                    "laisser un prix d'au moins 0,50 €.")
     return {**out, "price_before": fmt_eur(price), "price_after": fmt_eur(after),
             "stripe": stripe_ok, "paypal": paypal_ok}
 

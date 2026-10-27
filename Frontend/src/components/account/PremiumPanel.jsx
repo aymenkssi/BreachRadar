@@ -201,7 +201,7 @@ export const PremiumPanel = () => {
         <p className="mt-1 text-muted-foreground">{promo.description}
           {promo.price_after && <> : <span className="text-foreground">{promo.price_after}</span> au lieu de {promo.price_before}</>}</p>
         {promoCode && config.paypal?.enabled && !promo.paypal && (
-          <p className="mt-1 text-xs text-amber-500">Ce code s'applique uniquement au paiement par carte bancaire.</p>
+          <p className="mt-1 text-xs text-amber-500">Avec PayPal, ce code laisserait un prix inférieur à 0,50 € : il s'applique uniquement au paiement par carte bancaire.</p>
         )}
         {promo.kind === "free" && (
           <Button size="sm" className="mt-2 w-full gap-2" onClick={redeemFree} disabled={promoBusy} data-testid="promo-redeem-btn">

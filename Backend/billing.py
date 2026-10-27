@@ -170,11 +170,54 @@ async def paypal(cfg: PaymentConfig, method: str, path: str, json: Optional[dict
     return await asyncio.to_thread(_paypal_sync, cfg, method, path, json)
 
 
+async def paypal_plan_key(cfg: PaymentConfig, plan_id: str) -> Optional[str]:
+    """Formule (monthly/yearly) d'un plan PayPal : plan standard, ou plan créé pour un code promo."""
+    key = cfg.plan_for("paypal", plan_id)
+    if key or not plan_id:
+        return key
+    doc = await db.paypal_promo_plans.find_one({"plan_id": plan_id}, {"_id": 0, "plan_key": 1})
+    return doc["plan_key"] if doc else None
+
+
 async def apply_paypal(cfg: PaymentConfig, user: dict, sub: dict) -> dict:
     period_end = parse_dt((sub.get("billing_info") or {}).get("next_billing_time"))
     status = PAYPAL_STATUS.get(sub.get("status", ""), "PENDING")
-    return await apply_subscription(user, "paypal", sub["id"], cfg.plan_for("paypal", sub.get("plan_id", "")),
+    return await apply_subscription(user, "paypal", sub["id"], await paypal_plan_key(cfg, sub.get("plan_id", "")),
                                     status, period_end)
+
+
+def _eur(value) -> dict:
+    return {"fixed_price": {"value": f"{value:.2f}", "currency_code": "EUR"}}
+
+
+async def promo_paypal_plan(cfg: PaymentConfig, p: dict, plan_key: str, price, after) -> str:
+    """Plan PayPal propre à un code promo (créé à la première utilisation, puis réutilisé) : période
+    d'essai au prix réduit, gratuite si la réduction est totale, puis tarif normal ; ou tarif réduit permanent."""
+    key = f"{cfg.paypal_mode}:{cfg.paypal_client_id}:{p['code']}:{plan_key}:{price}"
+    existing = await db.paypal_promo_plans.find_one({"key": key}, {"_id": 0})
+    if existing:
+        return existing["plan_id"]
+    base = await paypal(cfg, "GET", f"/v1/billing/plans/{getattr(cfg, f'paypal_plan_{plan_key}')}")
+    freq = {"interval_unit": PLAN_INFO[plan_key]["paypal_unit"], "interval_count": 1}
+    trials = promo.trial_cycles(p, plan_key)
+    if trials:
+        trial = {"frequency": freq, "tenure_type": "TRIAL", "sequence": 1, "total_cycles": trials}
+        if after > 0:
+            trial["pricing_scheme"] = _eur(after)
+        cycles = [trial, {"frequency": freq, "tenure_type": "REGULAR", "sequence": 2, "total_cycles": 0,
+                          "pricing_scheme": _eur(price)}]
+    else:
+        cycles = [{"frequency": freq, "tenure_type": "REGULAR", "sequence": 1, "total_cycles": 0,
+                   "pricing_scheme": _eur(after)}]
+    created = await paypal(cfg, "POST", "/v1/billing/plans", {
+        "product_id": base["product_id"], "status": "ACTIVE",
+        "name": f"BreachRadar Premium {PLAN_INFO[plan_key]['label'].lower()} - code {p['code']}"[:127],
+        "billing_cycles": cycles,
+        "payment_preferences": {"auto_bill_outstanding": True, "payment_failure_threshold": 1},
+    })
+    await db.paypal_promo_plans.insert_one({"key": key, "plan_id": created["id"], "plan_key": plan_key,
+                                            "code": p["code"], "created_at": now().isoformat()})
+    return created["id"]
 
 
 async def sync_paypal(cfg: PaymentConfig, sub_id: str) -> None:
@@ -375,8 +418,22 @@ async def paypal_create(req: Checkout, user: dict = Depends(current_user)):
     if not cfg.paypal_ready or req.plan not in PLAN_KEYS:
         raise HTTPException(status_code=503, detail="Paiement PayPal indisponible")
     p = await _promo_for_checkout(req, user, cfg)
+    plan_id = getattr(cfg, f"paypal_plan_{req.plan}")
+    if p:
+        price = promo.parse_price(cfg.price_monthly_label if req.plan == "monthly" else cfg.price_yearly_label)
+        if price is None:
+            raise HTTPException(status_code=400, detail="Prix de la formule non configuré.")
+        after = promo.discounted(p, price)
+        if not promo.paypal_ok_for(p, after):
+            raise HTTPException(status_code=400, detail="Avec PayPal, une réduction sur toute la durée doit "
+                                                        "laisser un prix d'au moins 0,50 €.")
+        try:
+            plan_id = await promo_paypal_plan(cfg, p, req.plan, price, after)
+        except Exception as e:
+            logger.error(f"Création du plan PayPal du code {p['code']} échouée : {e}")
+            raise HTTPException(status_code=502, detail="Paiement PayPal momentanément indisponible.")
     body: Dict[str, Any] = {
-        "plan_id": getattr(cfg, f"paypal_plan_{req.plan}"),
+        "plan_id": plan_id,
         "custom_id": user["id"],
         "application_context": {
             "brand_name": "BreachRadar", "locale": "fr-FR", "shipping_preference": "NO_SHIPPING",
@@ -385,17 +442,6 @@ async def paypal_create(req: Checkout, user: dict = Depends(current_user)):
             "cancel_url": f"{mailer.public_url()}/?premium=cancel",
         },
     }
-    if p:
-        if not promo.paypal_compatible(p):
-            raise HTTPException(status_code=400, detail="Ce code s'applique uniquement au paiement par carte.")
-        price = promo.parse_price(cfg.price_monthly_label if req.plan == "monthly" else cfg.price_yearly_label)
-        if price is None:
-            raise HTTPException(status_code=400, detail="Prix de la formule non configuré.")
-        after = promo.discounted(p, price)
-        if after < promo.MIN_PAYPAL_PRICE:
-            raise HTTPException(status_code=400, detail="Avec PayPal, le prix réduit doit rester d'au moins 0,50 €.")
-        body["plan"] = {"billing_cycles": [{"sequence": 1, "pricing_scheme": {
-            "fixed_price": {"value": f"{after:.2f}", "currency_code": "EUR"}}}]}
     try:
         sub = await paypal(cfg, "POST", "/v1/billing/subscriptions", body)
     except Exception as e:
@@ -418,7 +464,7 @@ async def paypal_activate(req: PaypalActivation, user: dict = Depends(current_us
         raise HTTPException(status_code=502, detail="Impossible de vérifier l'abonnement auprès de PayPal.")
     pending = user.get("paypal_pending") or {}
     # Seul un abonnement créé par le serveur pour ce compte est accepté (prix non modifiable)
-    if (pending.get("id") != sub.get("id") or not cfg.plan_for("paypal", sub.get("plan_id", ""))
+    if (pending.get("id") != sub.get("id") or not await paypal_plan_key(cfg, sub.get("plan_id", ""))
             or sub.get("custom_id") != user["id"]):
         raise HTTPException(status_code=400, detail="Abonnement non reconnu.")
     if PAYPAL_STATUS.get(sub.get("status")) != "ACTIVE":

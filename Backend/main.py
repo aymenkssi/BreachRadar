@@ -26,6 +26,8 @@ async def create_indexes():
     await db.promo_codes.create_index("code", unique=True)
     await db.promo_redemptions.create_index([("code", 1), ("user_id", 1)], unique=True)
     await db.rate_limits.create_index("expires_at", expireAfterSeconds=0)
+    await db.paypal_promo_plans.create_index("key", unique=True)
+    await db.paypal_promo_plans.create_index("plan_id")
 
 
 startup_hooks.append(create_indexes)

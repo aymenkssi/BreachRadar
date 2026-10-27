@@ -114,7 +114,7 @@ export const AdminPromos = () => {
           <p className="mt-3 text-xs text-muted-foreground">
             {free ? "Le client active l'accès depuis le champ « Code promo », sans paiement."
               : form.duration === "forever" ? "Utilisable par carte (Stripe) et PayPal (avec PayPal, le prix réduit doit rester ≥ 0,50 €)."
-                : "Utilisable par carte (Stripe) uniquement : PayPal ne permet qu'une réduction sur toute la durée."}
+                : "Utilisable par carte (Stripe) et PayPal (période d'essai au prix réduit, gratuite à 100 %, puis tarif normal)."}
             {" "}Un compte ne peut utiliser un code qu'une fois.
           </p>
           <Button type="submit" disabled={busy} className="mt-4 gap-2" data-testid="promo-create-btn">

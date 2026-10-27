@@ -42,7 +42,7 @@ def test_check_code_computes_price(env, admin_headers, monkeypatch):  # noqa: F8
     user = signup(env)
     r = c.post("/api/billing/promo/check", json={"code": "moins20", "plan": "monthly"}, headers=user).json()
     assert r["price_before"] == "4,99 €" and r["price_after"] == "3,99 €"
-    assert r["stripe"] is True and r["paypal"] is False  # PayPal : réduction sur toute la durée seulement
+    assert r["stripe"] is True and r["paypal"] is True  # PayPal : période d'essai au prix réduit
     r = c.post("/api/billing/promo/check", json={"code": "TOUJOURS", "plan": "yearly"}, headers=user).json()
     assert r["price_after"] == "48,99 €" and r["paypal"] is True
     r = c.post("/api/billing/promo/check", json={"code": "ANNUEL", "plan": "monthly"}, headers=user)
@@ -109,21 +109,63 @@ def test_stripe_checkout_applies_coupon(env, admin_headers, stripe_env, monkeypa
     assert again.status_code == 400
 
 
-def test_paypal_discount_is_set_by_server(env, admin_headers, paypal):  # noqa: F811
+def paypal_checkout(c, paypal, headers, plan, code):  # noqa: F811
+    r = c.post("/api/billing/paypal/create", json={"plan": plan, "promo_code": code}, headers=headers)
+    assert r.status_code == 200, r.text
+    sub = paypal[r.json()["id"]]
+    return sub, paypal["_plans"].get(sub["plan_id"])
+
+
+def test_paypal_promo_plans_with_trial(env, admin_headers, paypal):  # noqa: F811
     c = env["client"]
     create(c, admin_headers, code="FIDELE", kind="amount", value=10, duration="forever")
     create(c, admin_headers, code="PREMIERMOIS", value=50)
+    create(c, admin_headers, code="TROISMOIS", value=20, duration="repeating", duration_months=3)
+    create(c, admin_headers, code="GRATUIT", value=100)
     user = signup(env)
-    r = c.post("/api/billing/paypal/create", json={"plan": "yearly", "promo_code": "PREMIERMOIS"}, headers=user)
-    assert r.status_code == 400 and "carte" in r.json()["detail"]
-    sub_id = c.post("/api/billing/paypal/create", json={"plan": "yearly", "promo_code": "FIDELE"},
-                    headers=user).json()["id"]
-    price = paypal[sub_id]["request"]["plan"]["billing_cycles"][0]["pricing_scheme"]["fixed_price"]
-    assert price == {"value": "39.99", "currency_code": "EUR"}
-    paypal[sub_id]["status"] = "ACTIVE"
-    me = c.post("/api/billing/paypal/subscription", json={"subscription_id": sub_id}, headers=user).json()
-    assert me["premium"]
-    assert c.get("/api/admin/promos", headers=admin_headers).json()[1]["redemptions"] == 1
+
+    # 1re échéance à -50 % : essai d'1 mois à 2,50 €, puis 4,99 €/mois
+    sub, plan = paypal_checkout(c, paypal, user, "monthly", "PREMIERMOIS")
+    trial, regular = plan["billing_cycles"]
+    assert (trial["tenure_type"], trial["total_cycles"], trial["pricing_scheme"]["fixed_price"]["value"]) == \
+        ("TRIAL", 1, "2.50")
+    assert (regular["tenure_type"], regular["pricing_scheme"]["fixed_price"]["value"]) == ("REGULAR", "4.99")
+    assert plan["product_id"] == "PROD-1" and "plan" not in sub["request"]
+
+    # -20 % pendant 3 mois : 3 échéances mensuelles à 3,99 € ; en annuel, la 1re année
+    _, plan = paypal_checkout(c, paypal, user, "monthly", "TROISMOIS")
+    assert plan["billing_cycles"][0]["total_cycles"] == 3
+    assert plan["billing_cycles"][0]["pricing_scheme"]["fixed_price"]["value"] == "3.99"
+    _, plan = paypal_checkout(c, paypal, user, "yearly", "TROISMOIS")
+    assert plan["billing_cycles"][0]["total_cycles"] == 1
+    assert plan["billing_cycles"][0]["frequency"]["interval_unit"] == "YEAR"
+
+    # 100 % sur la 1re échéance : premier mois gratuit (essai sans prix)
+    _, plan = paypal_checkout(c, paypal, user, "monthly", "GRATUIT")
+    assert "pricing_scheme" not in plan["billing_cycles"][0]
+
+    # Toute la durée : un seul cycle au tarif réduit
+    sub, plan = paypal_checkout(c, paypal, user, "yearly", "FIDELE")
+    assert len(plan["billing_cycles"]) == 1
+    assert plan["billing_cycles"][0]["pricing_scheme"]["fixed_price"]["value"] == "39.99"
+
+    # Le plan d'un code est réutilisé pour les clients suivants
+    created = len(paypal["_plans"])
+    paypal_checkout(c, paypal, signup(env, "bob@example.com"), "yearly", "FIDELE")
+    assert len(paypal["_plans"]) == created
+
+    # Activation : le plan du code est reconnu comme formule annuelle, l'utilisation est comptée
+    sub["status"] = "ACTIVE"
+    me = c.post("/api/billing/paypal/subscription", json={"subscription_id": sub["id"]}, headers=user).json()
+    assert me["premium"] and me["subscription"]["plan"] == "yearly"
+    fidele = next(p for p in c.get("/api/admin/promos", headers=admin_headers).json() if p["code"] == "FIDELE")
+    assert fidele["redemptions"] == 1
+
+    # Renouvellement signalé par webhook : Premium prolongé malgré le plan propre au code
+    sub["billing_info"]["next_billing_time"] = "2100-06-01T00:00:00Z"
+    event = {"event_type": "PAYMENT.SALE.COMPLETED", "resource": {"billing_agreement_id": sub["id"]}}
+    assert c.post("/api/billing/paypal/webhook", json=event).status_code == 200
+    assert c.get("/api/auth/me", headers=user).json()["premium_until"].startswith("2100-06-02")
 
 
 @pytest.mark.parametrize("label,expected", [("4,99 €", "4.99"), ("49 €", "49"), ("", None)])
@@ -141,10 +183,10 @@ def test_big_discount_messages_depend_on_payment_methods(env, admin_headers, mon
     async def get_config():
         return cfg["value"]
     monkeypatch.setattr(billing, "get_config", get_config)
-    r = c.post("/api/billing/promo/check", json={"code": "QUASI", "plan": "monthly"}, headers=user)
-    assert r.status_code == 400 and "carte bancaire" in r.json()["detail"]
+    r = c.post("/api/billing/promo/check", json={"code": "QUASI", "plan": "monthly"}, headers=user).json()
+    assert r["paypal"] is True and r["price_after"] == "0,25 €"  # période d'essai PayPal à 0,25 €
     r = c.post("/api/billing/promo/check", json={"code": "QUASITOUJOURS", "plan": "monthly"}, headers=user)
     assert r.status_code == 400 and "0,50 €" in r.json()["detail"]
     cfg["value"] = payment_config()                                      # Stripe ajouté : la carte accepte
     r = c.post("/api/billing/promo/check", json={"code": "QUASI", "plan": "monthly"}, headers=user).json()
-    assert r["price_after"] == "0,25 €" and r["stripe"] and not r["paypal"]
+    assert r["price_after"] == "0,25 €" and r["stripe"] and r["paypal"]

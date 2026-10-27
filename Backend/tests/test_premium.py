@@ -247,12 +247,20 @@ def paypal(monkeypatch):
         return payment_config()
     monkeypatch.setattr(billing, "get_config", get_config)
     subs = {}
+    plans = {}  # plans créés pour les codes promo
+    subs["_plans"] = plans
 
     async def fake_paypal(cfg, method, path, json=None):
         if path == "/v1/notifications/verify-webhook-signature":
             return {"verification_status": "SUCCESS"}
+        if path.startswith("/v1/billing/plans/"):
+            return {"id": path.rsplit("/", 1)[1], "product_id": "PROD-1"}
+        if path == "/v1/billing/plans":
+            plan_id = f"P-PROMO-{len(plans) + 1}"
+            plans[plan_id] = json
+            return {"id": plan_id}
         if path == "/v1/billing/subscriptions":  # création côté serveur
-            sub_id = f"I-{len(subs) + 1}"
+            sub_id = f"I-{sum(k.startswith('I-') for k in subs) + 1}"
             subs[sub_id] = {"id": sub_id, "plan_id": json["plan_id"], "status": "APPROVAL_PENDING",
                             "custom_id": json["custom_id"], "request": json,
                             "billing_info": {"next_billing_time": "2099-01-01T00:00:00Z"}}

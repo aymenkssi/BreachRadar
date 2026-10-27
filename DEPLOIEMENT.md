@@ -108,10 +108,15 @@ carte 4242 4242 4242 4242, ou PayPal Sandbox) avant de passer en production.
 Le client saisit le code dans **Mon compte → Abonnement**, avant de payer ; le prix réduit
 s'affiche avant le paiement. Un compte ne peut utiliser un code qu'une fois.
 
-- **Réduction en % ou en €** sur la première échéance, pendant N mois ou sur toute la durée :
-  appliquée par Stripe (coupon créé automatiquement à la première utilisation). PayPal ne gère pas
-  de coupons d'abonnement : un code n'y est utilisable que s'il porte sur **toute la durée** (le prix
-  réduit est fixé à la création de l'abonnement) ; sinon le client voit « uniquement par carte ».
+- **Réduction en % ou en €** sur la première échéance, pendant N mois ou sur toute la durée,
+  jusqu'à 100 % (premier mois offert) :
+  - Stripe : coupon créé automatiquement à la première utilisation ;
+  - PayPal (pas de coupons d'abonnement) : plan PayPal dédié au code, créé automatiquement à la
+    première utilisation puis réutilisé, avec une **période d'essai** au prix réduit (gratuite à
+    100 %) suivie du tarif normal. Ces plans « BreachRadar Premium … - code XXX » apparaissent dans
+    le tableau de bord PayPal. Seule limite : une réduction sur toute la durée doit laisser au
+    moins 0,50 € avec PayPal.
+  - Formule annuelle : une réduction « pendant N mois » s'applique à la première année.
 - **Accès offert** : N jours de Premium sans paiement (partenaires, influenceurs, tests). Fonctionne
   même si aucun moyen de paiement n'est configuré.
 
