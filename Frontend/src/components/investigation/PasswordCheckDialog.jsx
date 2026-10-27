@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { KeyRound, Eye, EyeOff, Loader2, ShieldCheck, ShieldAlert, Search } from "lucide-react";
+import { KeyRound, Eye, EyeOff, Loader2, ShieldCheck, ShieldAlert, Search, Crown, ListFilter } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/components/AuthProvider";
 
 // k-anonymat : le navigateur calcule l'empreinte SHA-1 et n'envoie à Pwned Passwords que ses 5 premiers
 // caractères ; la comparaison se fait ici. Le mot de passe ne quitte jamais l'appareil.
@@ -16,8 +17,13 @@ const checkPassword = async (password) => {
 };
 import { formatNumber } from "@/lib/format";
 
-export const PasswordCheckDialog = () => {
+// Pwned Passwords ne dit pas de quelle fuite vient un mot de passe (k-anonymat, volontairement).
+// Si le mot de passe est compromis, on oriente vers ce qui donne l'origine : les fuites de l'adresse
+// e-mail du client (onSearchEmail) et, pour les abonnés, le rapport des mots de passe (onOpenReport).
+export const PasswordCheckDialog = ({ onSearchEmail, onOpenReport }) => {
+  const { user } = useAuth();
   const [open, setOpen] = useState(false);
+  const [email, setEmail] = useState("");
   const [value, setValue] = useState("");
   const [show, setShow] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -40,7 +46,15 @@ export const PasswordCheckDialog = () => {
 
   const reset = (o) => {
     setOpen(o);
+    if (o) setEmail(user?.email || "");
     if (!o) { setValue(""); setResult(null); setShow(false); }
+  };
+
+  const searchEmail = (e) => {
+    e.preventDefault();
+    if (!email.trim()) return;
+    reset(false);
+    onSearchEmail?.(email.trim());
   };
 
   return (
@@ -103,6 +117,32 @@ export const PasswordCheckDialog = () => {
                 </>
               )}
             </div>
+          </div>
+        )}
+        {result?.pwned && onSearchEmail && (
+          <div className="space-y-2 rounded-xl border border-border p-4" data-testid="password-origin">
+            <p className="text-sm font-medium">D'où vient cette fuite ?</p>
+            <p className="text-xs text-muted-foreground">
+              Les bases de mots de passe divulgués n'indiquent jamais leur origine. Cherchez plutôt les fuites qui
+              concernent votre adresse e-mail : celles qui contenaient des mots de passe vous diront sur quel service
+              ce mot de passe a probablement été volé.
+            </p>
+            <form onSubmit={searchEmail} className="flex gap-2">
+              <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="votre@adresse.fr"
+                data-testid="password-origin-email"
+                className="min-w-0 flex-1 rounded-lg border border-border bg-background/60 px-3 py-2 font-mono-x text-sm outline-none focus:border-primary/50" />
+              <Button type="submit" size="sm" className="gap-1.5" data-testid="password-origin-search">
+                <ListFilter className="h-4 w-4" /> Voir les fuites
+              </Button>
+            </form>
+            {onOpenReport && (
+              <button type="button" onClick={() => { reset(false); onOpenReport(); }} data-testid="password-origin-report"
+                className="flex items-center gap-1.5 text-xs text-primary hover:underline">
+                <Crown className="h-3.5 w-3.5" />
+                {user?.premium ? "Ouvrir mon rapport des mots de passe (fuite par fuite)"
+                  : "Premium : rapport des mots de passe, fuite par fuite"}
+              </button>
+            )}
           </div>
         )}
         {result?.error && <p className="text-sm text-red-500">Service momentanément indisponible. Réessayez.</p>}

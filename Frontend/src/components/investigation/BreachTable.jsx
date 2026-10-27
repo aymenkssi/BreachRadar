@@ -88,8 +88,8 @@ const Row = ({ b }) => {
   );
 };
 
-export const BreachTable = ({ breaches, categoryFilter, onClearCategory }) => {
-  const [filter, setFilter] = useState("all");
+export const BreachTable = ({ breaches, categoryFilter, onClearCategory, initialFilter = "all" }) => {
+  const [filter, setFilter] = useState(initialFilter);
   const [query, setQuery] = useState("");
 
   const filtered = breaches

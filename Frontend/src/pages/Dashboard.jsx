@@ -51,6 +51,7 @@ export default function Dashboard() {
   const [categoryFilter, setCategoryFilter] = useState(null);
   const [watching, setWatching] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [breachFilter, setBreachFilter] = useState("all");
   const [accountTab, setAccountTab] = useState("premium");
   const { user, ready, setUser } = useAuth();
   usePageMeta({
@@ -109,7 +110,14 @@ export default function Dashboard() {
     }
   };
 
-  const runInvestigation = async (t) => {
+  // Depuis « Vérif. mot de passe » : fuites de l'adresse, en ne montrant que celles avec mots de passe
+  const searchPasswordOrigin = (email) => {
+    setBreachFilter("passwords");
+    runInvestigation(email, true);
+  };
+
+  const runInvestigation = async (t, keepFilter = false) => {
+    if (!keepFilter) setBreachFilter("all");
     setTarget(t);
     setLoading(true);
     setResult(null);
@@ -174,7 +182,7 @@ export default function Dashboard() {
           <div className="flex flex-shrink-0 items-center gap-1.5 sm:gap-2">
             {/* Outils secondaires dans l'en-tête sur grand écran, sous la recherche sinon */}
             <div className="hidden lg:flex items-center gap-2">
-              <PasswordCheckDialog />
+              <PasswordCheckDialog onSearchEmail={searchPasswordOrigin} onOpenReport={() => openAccount("passwords")} />
               <BatchDialog onSelect={handleSelect} onDone={loadHistory} />
               <CompareDialog history={history} />
             </div>
@@ -200,7 +208,7 @@ export default function Dashboard() {
           <SearchBar onSearch={runInvestigation} loading={loading} />
         </div>
         <div className="mx-auto mb-10 flex max-w-3xl flex-wrap justify-center gap-2 lg:hidden">
-          <PasswordCheckDialog />
+          <PasswordCheckDialog onSearchEmail={searchPasswordOrigin} onOpenReport={() => openAccount("passwords")} />
           <BatchDialog onSelect={handleSelect} onDone={loadHistory} />
           <CompareDialog history={history} />
         </div>
@@ -278,7 +286,8 @@ export default function Dashboard() {
               </div>
               <div className="lg:col-span-7">
                 {result.breaches?.length > 0 ? (
-                  <BreachTable breaches={result.breaches} categoryFilter={categoryFilter} onClearCategory={() => setCategoryFilter(null)} />
+                  <BreachTable key={`${result.id}-${breachFilter}`} breaches={result.breaches} categoryFilter={categoryFilter}
+                    onClearCategory={() => setCategoryFilter(null)} initialFilter={breachFilter} />
                 ) : (
                   <div className="flex h-full flex-col items-center justify-center rounded-2xl border border-emerald-500/20 bg-emerald-500/5 py-20 text-center">
                     <ShieldCheck className="mb-3 h-12 w-12 text-emerald-500" />
