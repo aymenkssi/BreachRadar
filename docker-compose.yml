@@ -2,6 +2,10 @@
 # termine le HTTPS (Let's Encrypt) et route breachradar.fr vers les conteneurs.
 # Secrets dans ./.env (voir .env.example), jamais dans ce fichier.
 
+# Nom de projet fixe : le volume de la base reste « breachradar_mongo_data » quel que soit le
+# dossier d'installation (/opt/apps/breachradar…), sans risque de repartir d'une base vide.
+name: breachradar
+
 x-logging: &logging
   driver: json-file
   options:

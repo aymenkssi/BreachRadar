@@ -21,7 +21,7 @@ Let's Encrypt ne pourra pas délivrer le certificat.
 ## 2. Installation (une seule fois)
 
 ```bash
-cd /var/www            # même emplacement que les autres applications
+cd /opt/apps           # même emplacement que les autres applications
 git clone https://github.com/aymenkssi/BreachRadar.git breachradar
 cd breachradar
 cp .env.example .env
@@ -142,11 +142,26 @@ rotation des journaux Docker, aucun cookie ni traceur publicitaire.
 ## 4. Mises à jour
 
 ```bash
-cd /var/www/breachradar && ./deploy.sh
+cd /opt/apps/breachradar && ./deploy.sh
 ```
 
 Le script récupère `main`, reconstruit les images, relance les conteneurs et vérifie que
 l'API répond. `BRANCH=autre-branche ./deploy.sh` pour déployer une autre branche.
+
+## Déplacer l'installation (ex. /var/www → /opt/apps)
+
+La base MongoDB est un volume Docker (`breachradar_mongo_data`), indépendant du dossier : il suffit
+de déplacer le dossier, qui contient aussi le `.env`.
+
+```bash
+cd /var/www/breachradar
+docker compose exec -T mongodb sh -c 'mongodump --archive -u breachradar_admin -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --db breachradar' > ~/breachradar-avant-migration.archive
+docker compose down                 # surtout pas « down -v » : cela supprimerait la base
+sudo mkdir -p /opt/apps
+sudo mv /var/www/breachradar /opt/apps/breachradar
+cd /opt/apps/breachradar
+./deploy.sh
+```
 
 ## Commandes utiles
 
