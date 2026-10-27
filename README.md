@@ -55,6 +55,7 @@ Mise à jour sur le VPS : `./deploy.sh`.
 - `scheduler.py` : passe quotidienne (conteneur `breachradar-scheduler`)
 - `mailer.py` : envoi SMTP (Brevo) avec limite journalière, compteur et service de secours
 - `admin.py` : administration (abonnés, paiement PayPal/Stripe, SMTP, infos légales, journal)
+- `promo.py` : codes promo (réduction Stripe/PayPal, accès offert), administration et utilisation
 - `privacy.py` : export / suppression du compte, purge selon les durées de conservation
 - `settings_store.py` : réglages de l'admin, secrets chiffrés
 - Frontend : `/admin`, pages `/mentions-legales`, `/cgv`, `/confidentialite`

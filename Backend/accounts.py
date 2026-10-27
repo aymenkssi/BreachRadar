@@ -134,6 +134,18 @@ async def premium_user(user: dict = Depends(current_user)) -> dict:
     return user
 
 
+async def admin_user(user: dict = Depends(current_user)) -> dict:
+    if not is_admin(user):
+        raise HTTPException(status_code=403, detail="Accès réservé aux administrateurs")
+    return user
+
+
+async def audit(admin: dict, action: str, details: str = "") -> None:
+    # Noms des champs uniquement : aucun secret n'apparaît dans le journal d'administration
+    await db.audit_logs.insert_one({"id": str(uuid.uuid4()), "admin": admin["email"], "action": action,
+                                    "details": details, "created_at": now().isoformat()})
+
+
 async def session(user: dict) -> dict:
     await db.users.update_one({"id": user["id"]}, {"$set": {"last_login_at": now().isoformat()}})
     return {"token": create_token(user["id"]), "user": public_user({**user, "email_verified": True})}

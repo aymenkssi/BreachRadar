@@ -3,7 +3,6 @@
 # Accès réservé aux comptes dont l'adresse figure dans ADMIN_EMAILS.
 import asyncio
 import re
-import uuid
 from datetime import datetime, time, timezone
 from typing import Literal, Optional
 
@@ -13,7 +12,7 @@ from pydantic import BaseModel, EmailStr, Field
 import billing
 import mailer
 import settings_store
-from accounts import current_user, is_admin, is_premium, now, parse_dt, public_user
+from accounts import admin_user, audit, is_premium, now, parse_dt, public_user
 from privacy import delete_user_data
 from server import ANTHROPIC_API_KEY, EMERGENT_LLM_KEY, db
 
@@ -26,18 +25,6 @@ LEGAL_FIELDS = (
     "publication_director", "host_name", "host_address", "host_phone", "mediator_name", "mediator_url",
 )
 PAGE_SIZE = 50
-
-
-async def admin_user(user: dict = Depends(current_user)) -> dict:
-    if not is_admin(user):
-        raise HTTPException(status_code=403, detail="Accès réservé aux administrateurs")
-    return user
-
-
-async def audit(admin: dict, action: str, details: str = "") -> None:
-    # Noms des champs uniquement : aucun secret n'apparaît dans le journal
-    await db.audit_logs.insert_one({"id": str(uuid.uuid4()), "admin": admin["email"], "action": action,
-                                    "details": details, "created_at": now().isoformat()})
 
 
 # ---------- Vue d'ensemble ----------

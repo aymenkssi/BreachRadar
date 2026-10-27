@@ -143,7 +143,9 @@ export const Terms = () => {
         <h2>4. Prix</h2>
         <p>Formule mensuelle : <strong>{l.prices?.monthly}</strong> par mois. Formule annuelle :
           <strong> {l.prices?.yearly}</strong> par an. Les prix sont indiqués en euros, toutes taxes comprises. Le prix
-          applicable est celui affiché au moment de la souscription ; une modification de prix n'est appliquée à un
+          applicable est celui affiché au moment de la souscription, après application éventuelle d'un code promo. Un code
+          promo est valable dans les conditions indiquées lors de sa saisie (réduction, durée, formule, date limite et
+          nombre d'utilisations), une seule fois par compte, non cumulable et sans contrepartie financière ; une modification de prix n'est appliquée à un
           abonnement en cours qu'à son renouvellement, après information préalable de l'abonné qui peut alors résilier.</p>
       </section>
       <section>

@@ -15,9 +15,10 @@ from typing import Any, Dict, Optional
 import requests
 import stripe
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 import mailer
+import promo
 import settings_store
 from accounts import current_user, now, parse_dt, public_user
 from server import db
@@ -322,8 +323,29 @@ class PaypalActivation(BaseModel):
     subscription_id: str
 
 
-class StripeCheckout(BaseModel):
+class Checkout(BaseModel):
     plan: str
+    promo_code: Optional[str] = Field(None, max_length=40)
+
+
+async def _promo_for_checkout(req: Checkout, user: dict, cfg: PaymentConfig) -> Optional[dict]:
+    if not (req.promo_code or "").strip():
+        return None
+    p = await promo.find_valid(req.promo_code, user, req.plan)
+    if p["kind"] == "free":
+        raise HTTPException(status_code=400, detail="Ce code s'active sans paiement, depuis le champ code promo.")
+    return p
+
+
+async def _stripe_coupon(cfg: PaymentConfig, p: dict) -> str:
+    """Coupon Stripe correspondant au code promo, créé à la première utilisation (et si la clé change)."""
+    fingerprint = promo.key_fingerprint(cfg.stripe_secret_key)
+    if p.get("stripe_coupon_id") and p.get("stripe_key_fp") == fingerprint:
+        return p["stripe_coupon_id"]
+    coupon = await stripe_call(stripe.Coupon.create, api_key=cfg.stripe_secret_key, **promo.stripe_coupon_params(p))
+    await db.promo_codes.update_one({"code": p["code"]}, {"$set": {
+        "stripe_coupon_id": coupon["id"], "stripe_key_fp": fingerprint}})
+    return coupon["id"]
 
 
 class StripeConfirm(BaseModel):
@@ -345,6 +367,41 @@ async def config():
     }
 
 
+@router.post("/paypal/create")
+async def paypal_create(req: Checkout, user: dict = Depends(current_user)):
+    """Crée l'abonnement côté serveur : le navigateur ne peut pas modifier le prix."""
+    cfg = await get_config()
+    if not cfg.paypal_ready or req.plan not in PLAN_KEYS:
+        raise HTTPException(status_code=503, detail="Paiement PayPal indisponible")
+    p = await _promo_for_checkout(req, user, cfg)
+    body: Dict[str, Any] = {
+        "plan_id": getattr(cfg, f"paypal_plan_{req.plan}"),
+        "custom_id": user["id"],
+        "application_context": {
+            "brand_name": "BreachRadar", "locale": "fr-FR", "shipping_preference": "NO_SHIPPING",
+            "user_action": "SUBSCRIBE_NOW",
+            "return_url": f"{mailer.public_url()}/?premium=paypal",
+            "cancel_url": f"{mailer.public_url()}/?premium=cancel",
+        },
+    }
+    if p:
+        if not promo.paypal_compatible(p):
+            raise HTTPException(status_code=400, detail="Ce code s'applique uniquement au paiement par carte.")
+        price = promo.parse_price(cfg.price_monthly_label if req.plan == "monthly" else cfg.price_yearly_label)
+        if price is None:
+            raise HTTPException(status_code=400, detail="Prix de la formule non configuré.")
+        body["plan"] = {"billing_cycles": [{"sequence": 1, "pricing_scheme": {
+            "fixed_price": {"value": f"{promo.discounted(p, price):.2f}", "currency_code": "EUR"}}}]}
+    try:
+        sub = await paypal(cfg, "POST", "/v1/billing/subscriptions", body)
+    except Exception as e:
+        logger.error(f"Création de l'abonnement PayPal échouée : {e}")
+        raise HTTPException(status_code=502, detail="Paiement PayPal momentanément indisponible.")
+    await db.users.update_one({"id": user["id"]}, {"$set": {"paypal_pending": {
+        "id": sub["id"], "plan": req.plan, "promo_code": p["code"] if p else None, "created_at": now().isoformat()}}})
+    return {"id": sub["id"]}
+
+
 @router.post("/paypal/subscription")
 async def paypal_activate(req: PaypalActivation, user: dict = Depends(current_user)):
     cfg = await get_config()
@@ -355,20 +412,30 @@ async def paypal_activate(req: PaypalActivation, user: dict = Depends(current_us
     except Exception as e:
         logger.error(f"Lecture de l'abonnement {req.subscription_id} échouée : {e}")
         raise HTTPException(status_code=502, detail="Impossible de vérifier l'abonnement auprès de PayPal.")
-    if not cfg.plan_for("paypal", sub.get("plan_id", "")) or sub.get("custom_id") != user["id"]:
+    pending = user.get("paypal_pending") or {}
+    # Seul un abonnement créé par le serveur pour ce compte est accepté (prix non modifiable)
+    if (pending.get("id") != sub.get("id") or not cfg.plan_for("paypal", sub.get("plan_id", ""))
+            or sub.get("custom_id") != user["id"]):
         raise HTTPException(status_code=400, detail="Abonnement non reconnu.")
     if PAYPAL_STATUS.get(sub.get("status")) != "ACTIVE":
         raise HTTPException(status_code=400, detail="L'abonnement n'est pas actif.")
     if await db.users.find_one({"subscription.id": sub["id"], "id": {"$ne": user["id"]}}, {"_id": 1}):
         raise HTTPException(status_code=409, detail="Abonnement déjà rattaché à un autre compte.")
-    return public_user(await apply_paypal(cfg, user, sub))
+    updated = await apply_paypal(cfg, user, sub)
+    if pending.get("promo_code"):
+        p = await db.promo_codes.find_one({"code": pending["promo_code"]}, {"_id": 0})
+        if p:
+            await promo.record_redemption(p, user, "paypal")
+    await db.users.update_one({"id": user["id"]}, {"$unset": {"paypal_pending": ""}})
+    return public_user(updated)
 
 
 @router.post("/stripe/checkout")
-async def stripe_checkout(req: StripeCheckout, user: dict = Depends(current_user)):
+async def stripe_checkout(req: Checkout, user: dict = Depends(current_user)):
     cfg = await get_config()
     if not cfg.stripe_ready or req.plan not in PLAN_KEYS:
         raise HTTPException(status_code=503, detail="Paiement par carte indisponible")
+    p = await _promo_for_checkout(req, user, cfg)
     params: Dict[str, Any] = {
         "mode": "subscription",
         "line_items": [{"price": getattr(cfg, f"stripe_price_{req.plan}"), "quantity": 1}],
@@ -378,11 +445,16 @@ async def stripe_checkout(req: StripeCheckout, user: dict = Depends(current_user
         "cancel_url": f"{mailer.public_url()}/?premium=cancel",
         "locale": "fr",
     }
+    if p:
+        params["metadata"] = {"promo_code": p["code"]}
+        params["subscription_data"]["metadata"]["promo_code"] = p["code"]
     if user.get("stripe_customer_id"):
         params["customer"] = user["stripe_customer_id"]
     else:
         params["customer_email"] = user["email"]
     try:
+        if p:
+            params["discounts"] = [{"coupon": await _stripe_coupon(cfg, p)}]
         session = await stripe_call(stripe.checkout.Session.create, api_key=cfg.stripe_secret_key, **params)
     except Exception as e:
         logger.error(f"Création de la session Stripe échouée : {e}")
@@ -404,7 +476,12 @@ async def stripe_confirm(req: StripeConfirm, user: dict = Depends(current_user))
     sub = session.get("subscription")
     if session.get("client_reference_id") != user["id"] or not isinstance(sub, dict):
         raise HTTPException(status_code=400, detail="Paiement non reconnu.")
-    return public_user(await apply_stripe(cfg, user, sub))
+    updated = await apply_stripe(cfg, user, sub)
+    code = (session.get("metadata") or {}).get("promo_code")
+    p = await db.promo_codes.find_one({"code": code}, {"_id": 0}) if code else None
+    if p:
+        await promo.record_redemption(p, user, "stripe")
+    return public_user(updated)
 
 
 @router.post("/cancel")

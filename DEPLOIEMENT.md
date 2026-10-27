@@ -62,6 +62,7 @@ existant. Se connecter ensuite sur le site, puis **Mon compte → Administration
 | Vue d'ensemble | comptes, Premium actifs (Stripe / PayPal / offerts), abonnements, quota e-mails du jour |
 | Abonnés | recherche, offrir ou retirer Premium, résilier un abonnement, relire son statut chez le fournisseur, supprimer un compte |
 | Paiement | activer Stripe et/ou PayPal, clés (chiffrées), création automatique des formules, URL des webhooks, prix affichés |
+| Codes promo | créer des codes (réduction en % ou en €, accès offert sans paiement), limiter par formule, nombre d'utilisations et date, activer/désactiver, voir qui les a utilisés |
 | E-mails | serveur SMTP principal (Brevo), limite journalière, compteur d'envois sur 14 jours, e-mail de test |
 | Infos légales | éditeur, SIRET, hébergeur, médiateur… repris dans les pages légales |
 | Journal | actions des administrateurs (sans aucun secret) |
@@ -101,6 +102,18 @@ si elles désignent un autre service (secours) ; sinon ils ne partent plus jusqu
 Les deux moyens peuvent être proposés ensemble. Tant qu'aucun n'est complet, l'offre affiche
 « bientôt disponible ». Faire un premier essai complet en mode test (Stripe `sk_test_…` avec la
 carte 4242 4242 4242 4242, ou PayPal Sandbox) avant de passer en production.
+
+### Codes promo
+
+Le client saisit le code dans **Mon compte → Abonnement**, avant de payer ; le prix réduit
+s'affiche avant le paiement. Un compte ne peut utiliser un code qu'une fois.
+
+- **Réduction en % ou en €** sur la première échéance, pendant N mois ou sur toute la durée :
+  appliquée par Stripe (coupon créé automatiquement à la première utilisation). PayPal ne gère pas
+  de coupons d'abonnement : un code n'y est utilisable que s'il porte sur **toute la durée** (le prix
+  réduit est fixé à la création de l'abonnement) ; sinon le client voit « uniquement par carte ».
+- **Accès offert** : N jours de Premium sans paiement (partenaires, influenceurs, tests). Fonctionne
+  même si aucun moyen de paiement n'est configuré.
 
 ### Pages légales (RGPD)
 

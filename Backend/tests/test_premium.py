@@ -13,6 +13,7 @@ import mailer
 import main
 import premium
 import privacy
+import promo
 import server
 import settings_store
 from server import Breach
@@ -21,7 +22,7 @@ from server import Breach
 @pytest.fixture
 def env(monkeypatch):
     db = AsyncMongoMockClient()["test"]
-    for module in (server, main, accounts, billing, premium, mailer, settings_store, admin, privacy):
+    for module in (server, main, accounts, billing, premium, mailer, settings_store, admin, privacy, promo):
         monkeypatch.setattr(module, "db", db)
     sent = []
     monkeypatch.setattr(mailer, "_transport", sent.append)
@@ -248,6 +249,12 @@ def paypal(monkeypatch):
     async def fake_paypal(cfg, method, path, json=None):
         if path == "/v1/notifications/verify-webhook-signature":
             return {"verification_status": "SUCCESS"}
+        if path == "/v1/billing/subscriptions":  # création côté serveur
+            sub_id = f"I-{len(subs) + 1}"
+            subs[sub_id] = {"id": sub_id, "plan_id": json["plan_id"], "status": "APPROVAL_PENDING",
+                            "custom_id": json["custom_id"], "request": json,
+                            "billing_info": {"next_billing_time": "2099-01-01T00:00:00Z"}}
+            return {"id": sub_id}
         sub_id = path.split("/")[4]
         if path.endswith("/cancel"):
             subs[sub_id]["status"] = "CANCELLED"
@@ -265,8 +272,9 @@ def user_id(env, email="alice@example.com"):
 def test_subscription_activation_and_webhooks(env, paypal):
     c = env["client"]
     headers = signup(env)
-    paypal["I-1"] = {"id": "I-1", "plan_id": "P-YEAR", "status": "ACTIVE", "custom_id": user_id(env),
-                     "billing_info": {"next_billing_time": "2099-01-01T00:00:00Z"}}
+    created = c.post("/api/billing/paypal/create", json={"plan": "yearly"}, headers=headers).json()
+    assert created == {"id": "I-1"} and "plan" not in paypal["I-1"]["request"]  # prix du plan, non modifié
+    paypal["I-1"]["status"] = "ACTIVE"  # approuvé par l'acheteur dans la fenêtre PayPal
     conf = c.get("/api/billing/config").json()
     assert conf["enabled"] and conf["paypal"]["enabled"] and conf["stripe"]["enabled"]
     me = c.post("/api/billing/paypal/subscription", json={"subscription_id": "I-1"}, headers=headers).json()
@@ -288,6 +296,16 @@ def test_subscription_of_another_account_is_refused(env, paypal):
     headers = signup(env)
     paypal["I-2"] = {"id": "I-2", "plan_id": "P-MONTH", "status": "ACTIVE", "custom_id": "autre-compte"}
     r = c.post("/api/billing/paypal/subscription", json={"subscription_id": "I-2"}, headers=headers)
+    assert r.status_code == 400
+
+
+def test_paypal_subscription_created_in_browser_is_refused(env, paypal):
+    """Un abonnement créé hors du serveur (prix éventuellement modifié) n'active pas Premium."""
+    c = env["client"]
+    headers = signup(env)
+    paypal["I-9"] = {"id": "I-9", "plan_id": "P-MONTH", "status": "ACTIVE", "custom_id": user_id(env),
+                     "plan_overridden": True}
+    r = c.post("/api/billing/paypal/subscription", json={"subscription_id": "I-9"}, headers=headers)
     assert r.status_code == 400
     assert c.get("/api/auth/me", headers=headers).json()["premium"] is False
 

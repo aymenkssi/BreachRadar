@@ -4,9 +4,11 @@ import admin
 import billing
 import premium
 import privacy
+import promo
 from server import app, db
 
-for router in (accounts.router, privacy.router, billing.router, premium.router, admin.router, admin.public_router):
+for router in (accounts.router, privacy.router, billing.router, premium.router, admin.router, admin.public_router,
+               promo.router, promo.public_router):
     app.include_router(router)
 
 
@@ -22,3 +24,5 @@ async def create_indexes():
     await db.email_stats.create_index("date", unique=True)
     await db.platform_settings.create_index("key", unique=True)
     await db.audit_logs.create_index("created_at")
+    await db.promo_codes.create_index("code", unique=True)
+    await db.promo_redemptions.create_index([("code", 1), ("user_id", 1)], unique=True)

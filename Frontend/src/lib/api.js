@@ -94,8 +94,13 @@ export const getBillingConfig = () => axios.get(`${API}/billing/config`).then((r
 export const activateSubscription = (subscriptionId) =>
   axios.post(`${API}/billing/paypal/subscription`, { subscription_id: subscriptionId }).then((r) => r.data);
 export const cancelSubscription = () => axios.post(`${API}/billing/cancel`).then((r) => r.data);
-export const startStripeCheckout = (plan) =>
-  axios.post(`${API}/billing/stripe/checkout`, { plan }).then((r) => r.data);
+export const startStripeCheckout = (plan, promoCode) =>
+  axios.post(`${API}/billing/stripe/checkout`, { plan, promo_code: promoCode || null }).then((r) => r.data);
+export const createPaypalSubscription = (plan, promoCode) =>
+  axios.post(`${API}/billing/paypal/create`, { plan, promo_code: promoCode || null }).then((r) => r.data);
+export const checkPromo = (code, plan) =>
+  axios.post(`${API}/billing/promo/check`, { code, plan }).then((r) => r.data);
+export const redeemPromo = (code) => axios.post(`${API}/billing/promo/redeem`, { code }).then((r) => r.data);
 export const confirmStripeCheckout = (sessionId) =>
   axios.post(`${API}/billing/stripe/confirm`, { session_id: sessionId }).then((r) => r.data);
 export const getLegal = () => axios.get(`${API}/legal`).then((r) => r.data);
@@ -137,4 +142,9 @@ export const admin = {
   legal: () => adminGet("/legal"),
   saveLegal: (data) => adminSend("put", "/legal", data),
   audit: () => adminGet("/audit"),
+  promos: () => adminGet("/promos"),
+  createPromo: (data) => adminSend("post", "/promos", data),
+  setPromoActive: (id, active) => adminSend("patch", `/promos/${id}`, { active }),
+  deletePromo: (id) => adminSend("delete", `/promos/${id}`),
+  promoRedemptions: (id) => adminGet(`/promos/${id}/redemptions`),
 };

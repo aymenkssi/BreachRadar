@@ -7,12 +7,14 @@ import { AdminUsers } from "@/components/admin/AdminUsers";
 import { AdminPayments } from "@/components/admin/AdminPayments";
 import { AdminSmtp } from "@/components/admin/AdminSmtp";
 import { AdminLegal, AdminAudit } from "@/components/admin/AdminLegal";
+import { AdminPromos } from "@/components/admin/AdminPromos";
 import { ThemeToggle } from "@/components/investigation/ThemeToggle";
 
 const TABS = [
   ["overview", "Vue d'ensemble", AdminOverview],
   ["users", "Abonnés", AdminUsers],
   ["payments", "Paiement", AdminPayments],
+  ["promos", "Codes promo", AdminPromos],
   ["emails", "E-mails", AdminSmtp],
   ["legal", "Infos légales", AdminLegal],
   ["audit", "Journal", AdminAudit],

@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
-import { Crown, Check, Loader2, AlertTriangle, BellRing, KeyRound, Mail, CreditCard } from "lucide-react";
+import { Crown, Check, Loader2, AlertTriangle, BellRing, KeyRound, Mail, CreditCard, Tag, X, Gift } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useAuth } from "@/components/AuthProvider";
 import {
-  getBillingConfig, activateSubscription, cancelSubscription, startStripeCheckout, errorMessage,
+  getBillingConfig, activateSubscription, cancelSubscription, startStripeCheckout, createPaypalSubscription,
+  checkPromo, redeemPromo, errorMessage,
 } from "@/lib/api";
 
 const FEATURES = [
@@ -93,16 +95,50 @@ export const PremiumPanel = () => {
   const [sdkError, setSdkError] = useState(false);
   const [consent, setConsent] = useState(false);
   const [redirecting, setRedirecting] = useState(false);
+  const [promoInput, setPromoInput] = useState("");
+  const [promo, setPromo] = useState(null);
+  const [promoBusy, setPromoBusy] = useState(false);
   const buttonsRef = useRef(null);
 
   useEffect(() => {
     getBillingConfig().then(setConfig).catch(() => setConfig({ enabled: false, plans: [] }));
   }, []);
 
-  const paypalPlanId = config?.paypal?.plans?.[plan];
+  const promoCode = promo && promo.kind !== "free" ? promo.code : null;
+  const paypalAllowed = config?.paypal?.enabled && (!promoCode || promo.paypal);
+
+  const applyPromo = async (code = promoInput, forPlan = plan) => {
+    if (!code.trim()) return;
+    setPromoBusy(true);
+    try {
+      setPromo(await checkPromo(code.trim(), forPlan));
+    } catch (err) {
+      setPromo(null);
+      toast.error(errorMessage(err, "Code promo invalide."));
+    } finally {
+      setPromoBusy(false);
+    }
+  };
+
+  const choosePlan = (key) => {
+    setPlan(key);
+    if (promo) applyPromo(promo.code, key);  // le prix réduit dépend de la formule
+  };
+
+  const redeemFree = async () => {
+    setPromoBusy(true);
+    try {
+      setUser(await redeemPromo(promo.code));
+      toast.success("Accès Premium offert activé !");
+    } catch (err) {
+      toast.error(errorMessage(err, "Code promo invalide."));
+    } finally {
+      setPromoBusy(false);
+    }
+  };
 
   useEffect(() => {
-    if (!config?.paypal?.enabled || !paypalPlanId || !consent || user?.premium || !buttonsRef.current) return undefined;
+    if (!paypalAllowed || !consent || user?.premium || !buttonsRef.current) return undefined;
     let buttons;
     let disposed = false;
     loadPaypal(config.paypal.client_id).then((paypal) => {
@@ -110,8 +146,10 @@ export const PremiumPanel = () => {
       buttonsRef.current.innerHTML = "";
       buttons = paypal.Buttons({
         style: { layout: "vertical", label: "subscribe", shape: "rect" },
-        createSubscription: (data, actions) =>
-          actions.subscription.create({ plan_id: paypalPlanId, custom_id: user.id }),
+        // Abonnement créé par le serveur : le prix (réduit ou non) ne peut pas être modifié dans le navigateur
+        createSubscription: () => createPaypalSubscription(plan, promoCode)
+          .then((r) => r.id)
+          .catch((err) => { toast.error(errorMessage(err, "Paiement PayPal indisponible.")); throw err; }),
         onApprove: async (data) => {
           setActivating(true);
           try {
@@ -128,12 +166,12 @@ export const PremiumPanel = () => {
       buttons.render(buttonsRef.current);
     }).catch(() => setSdkError(true));
     return () => { disposed = true; buttons?.close?.(); };
-  }, [config, paypalPlanId, consent, user?.premium, user?.id, setUser]);
+  }, [config, plan, promoCode, paypalAllowed, consent, user?.premium, user?.id, setUser]);
 
   const payByCard = async () => {
     setRedirecting(true);
     try {
-      const { url } = await startStripeCheckout(plan);
+      const { url } = await startStripeCheckout(plan, promoCode);
       window.location.assign(url);
     } catch (err) {
       toast.error(errorMessage(err, "Paiement par carte indisponible."));
@@ -152,6 +190,34 @@ export const PremiumPanel = () => {
       setCancelling(false);
     }
   };
+
+  const promoBlock = promo ? (
+      <div className="rounded-xl border border-primary/30 bg-primary/10 p-3 text-sm" data-testid="promo-applied">
+        <div className="flex items-center justify-between gap-2">
+          <span className="flex items-center gap-2 font-medium"><Tag className="h-4 w-4 text-primary" /> {promo.code}</span>
+          <button type="button" onClick={() => { setPromo(null); setPromoInput(""); }} aria-label="Retirer le code"
+            className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+        </div>
+        <p className="mt-1 text-muted-foreground">{promo.description}
+          {promo.price_after && <> : <span className="text-foreground">{promo.price_after}</span> au lieu de {promo.price_before}</>}</p>
+        {promoCode && config.paypal?.enabled && !promo.paypal && (
+          <p className="mt-1 text-xs text-amber-500">Ce code s'applique uniquement au paiement par carte bancaire.</p>
+        )}
+        {promo.kind === "free" && (
+          <Button size="sm" className="mt-2 w-full gap-2" onClick={redeemFree} disabled={promoBusy} data-testid="promo-redeem-btn">
+            {promoBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Gift className="h-4 w-4" />} Activer mon accès offert
+          </Button>
+        )}
+      </div>
+    ) : (
+      <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); applyPromo(); }}>
+        <Input value={promoInput} onChange={(e) => setPromoInput(e.target.value.toUpperCase())} placeholder="Code promo"
+          className="font-mono-x uppercase" data-testid="promo-input" />
+        <Button type="submit" variant="outline" disabled={promoBusy || !promoInput.trim()} data-testid="promo-apply-btn">
+          {promoBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Appliquer"}
+        </Button>
+      </form>
+    );
 
   if (user.premium) return <SubscriptionStatus user={user} onCancel={onCancel} cancelling={cancelling} />;
 
@@ -172,21 +238,29 @@ export const PremiumPanel = () => {
       {!config ? (
         <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
       ) : !config.enabled ? (
-        <p className="rounded-xl border border-border p-4 text-sm text-muted-foreground">
-          L'abonnement Premium sera bientôt disponible.
-        </p>
+        <>
+          <p className="rounded-xl border border-border p-4 text-sm text-muted-foreground">
+            L'abonnement Premium sera bientôt disponible. Vous avez un code d'accès offert ? Saisissez-le ci-dessous.
+          </p>
+          {promoBlock}
+        </>
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3">
             {config.plans.map((p) => (
-              <button key={p.key} type="button" onClick={() => setPlan(p.key)} data-testid={`plan-${p.key}`}
+              <button key={p.key} type="button" onClick={() => choosePlan(p.key)} data-testid={`plan-${p.key}`}
                 className={`rounded-xl border p-4 text-left transition ${plan === p.key ? "border-primary bg-primary/10" : "border-border hover:border-primary/40"}`}>
                 <p className="text-xs font-mono-x uppercase tracking-wider text-muted-foreground">{p.label}</p>
-                <p className="mt-1 font-heading text-xl font-bold">{p.price}</p>
+                {promoCode && plan === p.key && promo.price_after ? (
+                  <p className="mt-1 font-heading text-xl font-bold">
+                    {promo.price_after} <span className="text-sm font-normal text-muted-foreground line-through">{p.price}</span>
+                  </p>
+                ) : <p className="mt-1 font-heading text-xl font-bold">{p.price}</p>}
                 <p className="text-xs text-muted-foreground">par {p.period}</p>
               </button>
             ))}
           </div>
+          {promoBlock}
           <label className="flex items-start gap-2 rounded-xl border border-border p-3 text-xs text-muted-foreground">
             <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="mt-0.5"
               data-testid="withdrawal-consent" />
@@ -205,7 +279,7 @@ export const PremiumPanel = () => {
               Payer par carte bancaire
             </Button>
           )}
-          {consent && config.paypal?.enabled && (sdkError ? (
+          {consent && paypalAllowed && (sdkError ? (
             <p className="text-sm text-red-500">Impossible de charger PayPal. Désactivez un éventuel bloqueur de publicités et réessayez.</p>
           ) : (
             <div ref={buttonsRef} data-testid="paypal-buttons" />
