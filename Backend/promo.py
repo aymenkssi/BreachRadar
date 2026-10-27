@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, model_validator
 from pymongo.errors import DuplicateKeyError
 
+from ratelimit import limit
 from accounts import admin_user, audit, current_user, now, parse_dt, public_user
 from server import db
 
@@ -117,7 +118,7 @@ class PromoCheck(BaseModel):
     plan: Literal["monthly", "yearly"] = "monthly"
 
 
-@public_router.post("/check")
+@public_router.post("/check", dependencies=[Depends(limit("promo", 20, 3600, per="user"))])
 async def check(req: PromoCheck, user: dict = Depends(current_user)):
     import billing  # import local : billing utilise aussi ce module
     promo = await find_valid(req.code, user, req.plan)
@@ -148,7 +149,7 @@ class PromoRedeem(BaseModel):
     code: str = Field(max_length=40)
 
 
-@public_router.post("/redeem")
+@public_router.post("/redeem", dependencies=[Depends(limit("promo", 20, 3600, per="user"))])
 async def redeem(req: PromoRedeem, user: dict = Depends(current_user)):
     """Code « accès offert » : prolonge Premium sans paiement."""
     promo = await find_valid(req.code, user)

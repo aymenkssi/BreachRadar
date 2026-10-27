@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr, Field
 
 import mailer
+from ratelimit import limit
 from accounts import check_code, current_user, is_premium, issue_code, normalize, now, premium_user
 from server import Breach, db, gather_breaches
 
@@ -103,7 +104,7 @@ async def list_monitors(user: dict = Depends(current_user)):
     return {"limit": MONITOR_LIMIT, "monitors": [public_monitor(m) for m in docs]}
 
 
-@router.post("/monitors")
+@router.post("/monitors", dependencies=[Depends(limit("monitor-add", 20, 3600, per="user"))])
 async def add_monitor(req: MonitorCreate, user: dict = Depends(premium_user)):
     email = normalize(req.email)
     if await db.monitors.find_one({"user_id": user["id"], "email": email}, {"_id": 1}):
@@ -123,7 +124,7 @@ async def add_monitor(req: MonitorCreate, user: dict = Depends(premium_user)):
     return public_monitor(monitor)
 
 
-@router.post("/monitors/{monitor_id}/verify")
+@router.post("/monitors/{monitor_id}/verify", dependencies=[Depends(limit("monitor-code", 20, 3600, per="user"))])
 async def verify_monitor(monitor_id: str, req: MonitorCode, user: dict = Depends(premium_user)):
     monitor = await _get_monitor(monitor_id, user)
     if monitor["verified"]:
@@ -133,7 +134,7 @@ async def verify_monitor(monitor_id: str, req: MonitorCode, user: dict = Depends
     return public_monitor(await _baseline(monitor))
 
 
-@router.post("/monitors/{monitor_id}/resend")
+@router.post("/monitors/{monitor_id}/resend", dependencies=[Depends(limit("monitor-code", 20, 3600, per="user"))])
 async def resend_monitor_code(monitor_id: str, user: dict = Depends(premium_user)):
     monitor = await _get_monitor(monitor_id, user)
     if not monitor["verified"]:
@@ -221,7 +222,7 @@ def build_password_report(email: str, breaches: List[Breach]) -> dict:
     }
 
 
-@router.get("/password-report")
+@router.get("/password-report", dependencies=[Depends(limit("report-pwd", 30, 3600, per="user"))])
 async def password_report(email: EmailStr, user: dict = Depends(premium_user)):
     email = normalize(email)
     owned = email == user["email"] or await db.monitors.find_one(

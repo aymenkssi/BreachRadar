@@ -14,6 +14,7 @@ import main
 import premium
 import privacy
 import promo
+import ratelimit
 import server
 import settings_store
 from server import Breach
@@ -22,7 +23,8 @@ from server import Breach
 @pytest.fixture
 def env(monkeypatch):
     db = AsyncMongoMockClient()["test"]
-    for module in (server, main, accounts, billing, premium, mailer, settings_store, admin, privacy, promo):
+    for module in (server, main, accounts, billing, premium, mailer, settings_store, admin, privacy, promo,
+                   ratelimit):
         monkeypatch.setattr(module, "db", db)
     sent = []
     monkeypatch.setattr(mailer, "_transport", sent.append)

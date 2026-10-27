@@ -7,8 +7,8 @@ export const HistorySidebar = ({ history, onSelect, onDelete, onClear }) => {
   return (
     <Sheet>
       <SheetTrigger asChild>
-        <Button variant="outline" size="sm" data-testid="history-open-btn" className="gap-2">
-          <History className="h-4 w-4" /> Historique
+        <Button variant="outline" size="sm" data-testid="history-open-btn" className="gap-2" aria-label="Historique">
+          <History className="h-4 w-4" /> <span className="hidden sm:inline">Historique</span>
           {history.length > 0 && (
             <span className="ml-1 rounded-full bg-primary/15 px-1.5 text-xs font-mono-x text-primary">{history.length}</span>
           )}

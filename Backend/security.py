@@ -20,8 +20,8 @@ TOKEN_DAYS = 30
 
 def _secret() -> str:
     secret = os.environ.get("JWT_SECRET", "")
-    if not secret:
-        raise RuntimeError("JWT_SECRET n'est pas défini")
+    if len(secret) < 32:
+        raise RuntimeError("JWT_SECRET doit faire au moins 32 caractères (openssl rand -hex 32)")
     return secret
 
 
@@ -42,13 +42,14 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 
 def create_token(user_id: str) -> str:
-    exp = datetime.now(timezone.utc) + timedelta(days=TOKEN_DAYS)
-    return jwt.encode({"sub": user_id, "exp": exp}, _secret(), algorithm=JWT_ALGORITHM)
+    issued = datetime.now(timezone.utc)
+    return jwt.encode({"sub": user_id, "iat": issued, "exp": issued + timedelta(days=TOKEN_DAYS)},
+                      _secret(), algorithm=JWT_ALGORITHM)
 
 
-def decode_token(token: str) -> Optional[str]:
+def decode_claims(token: str) -> Optional[dict]:
     try:
-        return jwt.decode(token, _secret(), algorithms=[JWT_ALGORITHM]).get("sub")
+        return jwt.decode(token, _secret(), algorithms=[JWT_ALGORITHM])
     except jwt.PyJWTError:
         return None
     except RuntimeError as e:
@@ -56,11 +57,15 @@ def decode_token(token: str) -> Optional[str]:
         return None
 
 
-def bearer_user_id(request: Request) -> Optional[str]:
+def bearer_claims(request: Request) -> Optional[dict]:
     scheme, _, token = request.headers.get("Authorization", "").partition(" ")
     if scheme.lower() != "bearer" or not token:
         return None
-    return decode_token(token)
+    return decode_claims(token)
+
+
+def bearer_user_id(request: Request) -> Optional[str]:
+    return (bearer_claims(request) or {}).get("sub")
 
 
 def get_owner(request: Request) -> Optional[str]:

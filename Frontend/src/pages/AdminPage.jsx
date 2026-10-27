@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { ArrowLeft, Loader2, Radar, ShieldAlert } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/components/AuthProvider";
+import { usePageMeta } from "@/lib/usePageMeta";
 import { AdminOverview } from "@/components/admin/AdminOverview";
 import { AdminUsers } from "@/components/admin/AdminUsers";
 import { AdminPayments } from "@/components/admin/AdminPayments";
@@ -22,6 +23,7 @@ const TABS = [
 
 export default function AdminPage() {
   const { user, ready } = useAuth();
+  usePageMeta({ title: "Administration · BreachRadar", path: "/admin", noindex: true });
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -29,7 +31,7 @@ export default function AdminPage() {
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3.5">
           <Link to="/" className="flex items-center gap-2 font-heading font-bold">
             <Radar className="h-5 w-5 text-primary" /> BreachRadar<span className="text-primary">AI</span>
-            <span className="ml-2 rounded-md bg-primary/15 px-2 py-0.5 text-xs text-primary">Administration</span>
+            <span className="ml-2 hidden rounded-md bg-primary/15 px-2 py-0.5 text-xs text-primary min-[420px]:inline">Administration</span>
           </Link>
           <div className="flex items-center gap-2">
             <Link to="/" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">

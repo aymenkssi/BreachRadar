@@ -1,7 +1,7 @@
-import { jsPDF } from "jspdf";
 import { formatNumber, riskInfo } from "@/lib/format";
 
-export function generateReportPdf(inv) {
+export async function generateReportPdf(inv) {
+  const { jsPDF } = await import("jspdf"); // chargé à la demande
   const doc = new jsPDF({ unit: "pt", format: "a4" });
   const W = doc.internal.pageSize.getWidth();
   const M = 48;

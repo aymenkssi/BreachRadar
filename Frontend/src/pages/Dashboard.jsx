@@ -18,6 +18,7 @@ import { CompareDialog } from "@/components/investigation/CompareDialog";
 import { ThemeToggle } from "@/components/investigation/ThemeToggle";
 import { AccountSheet } from "@/components/account/AccountSheet";
 import { useAuth } from "@/components/AuthProvider";
+import { usePageMeta } from "@/lib/usePageMeta";
 import { Button } from "@/components/ui/button";
 import { investigate, getHistory, deleteInvestigation, clearHistory, generateReport, getWatchlist, addWatch, confirmStripeCheckout, errorMessage } from "@/lib/api";
 
@@ -52,6 +53,11 @@ export default function Dashboard() {
   const [accountOpen, setAccountOpen] = useState(false);
   const [accountTab, setAccountTab] = useState("premium");
   const { user, ready, setUser } = useAuth();
+  usePageMeta({
+    title: "BreachRadar AI : vos données ont-elles fuité ? Vérification gratuite",
+    description: "Vérifiez gratuitement si votre adresse e-mail ou votre domaine apparaît dans une fuite de données : score de risque, détail des fuites, rapport d'analyse par IA et alertes en cas de nouvelle fuite.",
+    path: "/",
+  });
 
   const openAccount = (tab) => { setAccountTab(tab); setAccountOpen(true); };
 
@@ -155,18 +161,19 @@ export default function Dashboard() {
       <div className="grid-backdrop pointer-events-none absolute inset-x-0 top-0 h-96" />
 
       <header className="sticky top-0 z-20 border-b border-border bg-background/80 backdrop-blur-md">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3.5 sm:px-6">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/15 ring-1 ring-primary/25">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-2 px-4 py-3.5 sm:px-6">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="hidden h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-primary/15 ring-1 ring-primary/25 min-[400px]:flex">
               <Radar className="h-5 w-5 text-primary" />
             </div>
             <div>
               <h1 className="font-heading text-lg font-bold leading-none tracking-tight">BreachRadar<span className="text-primary"> AI</span></h1>
-              <p className="text-[11px] font-mono-x uppercase tracking-widest text-muted-foreground">Threat Intelligence · Investigation de fuites</p>
+              <p className="hidden text-[11px] font-mono-x uppercase tracking-widest text-muted-foreground xl:block">Threat Intelligence · Investigation de fuites</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="hidden sm:flex items-center gap-2">
+          <div className="flex flex-shrink-0 items-center gap-1.5 sm:gap-2">
+            {/* Outils secondaires dans l'en-tête sur grand écran, sous la recherche sinon */}
+            <div className="hidden lg:flex items-center gap-2">
               <PasswordCheckDialog />
               <BatchDialog onSelect={handleSelect} onDone={loadHistory} />
               <CompareDialog history={history} />
@@ -192,7 +199,7 @@ export default function Dashboard() {
         <div className="mx-auto mb-4 max-w-3xl">
           <SearchBar onSearch={runInvestigation} loading={loading} />
         </div>
-        <div className="mx-auto mb-10 flex max-w-3xl flex-wrap justify-center gap-2 sm:hidden">
+        <div className="mx-auto mb-10 flex max-w-3xl flex-wrap justify-center gap-2 lg:hidden">
           <PasswordCheckDialog />
           <BatchDialog onSelect={handleSelect} onDone={loadHistory} />
           <CompareDialog history={history} />

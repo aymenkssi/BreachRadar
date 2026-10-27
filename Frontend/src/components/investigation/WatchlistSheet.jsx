@@ -38,7 +38,7 @@ export const WatchlistSheet = ({ watchlist, onChange }) => {
   return (
     <Sheet>
       <SheetTrigger asChild>
-        <Button variant="outline" size="icon" data-testid="watchlist-open-btn" className="relative">
+        <Button variant="outline" size="icon" data-testid="watchlist-open-btn" className="relative" aria-label="Liste de surveillance">
           {alerts > 0 ? <BellRing className="h-4 w-4 text-primary" /> : <Bell className="h-4 w-4" />}
           {alerts > 0 && (
             <span data-testid="watchlist-alert-count" className="absolute -right-1 -top-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">

@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 import mailer
 import promo
 import settings_store
+from ratelimit import limit
 from accounts import current_user, now, parse_dt, public_user
 from server import db
 
@@ -367,7 +368,7 @@ async def config():
     }
 
 
-@router.post("/paypal/create")
+@router.post("/paypal/create", dependencies=[Depends(limit("checkout", 20, 3600, per="user"))])
 async def paypal_create(req: Checkout, user: dict = Depends(current_user)):
     """Crée l'abonnement côté serveur : le navigateur ne peut pas modifier le prix."""
     cfg = await get_config()
@@ -433,7 +434,7 @@ async def paypal_activate(req: PaypalActivation, user: dict = Depends(current_us
     return public_user(updated)
 
 
-@router.post("/stripe/checkout")
+@router.post("/stripe/checkout", dependencies=[Depends(limit("checkout", 20, 3600, per="user"))])
 async def stripe_checkout(req: Checkout, user: dict = Depends(current_user)):
     cfg = await get_config()
     if not cfg.stripe_ready or req.plan not in PLAN_KEYS:

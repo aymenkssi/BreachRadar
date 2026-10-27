@@ -1,4 +1,6 @@
-from fastapi import FastAPI, APIRouter, Depends, HTTPException
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -17,6 +19,12 @@ from datetime import datetime, timezone
 import anthropic
 
 from security import get_owner
+
+
+def limit(*args, **kwargs):
+    from ratelimit import limit as _limit  # ratelimit importe server : import différé
+    return _limit(*args, **kwargs)
+
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -42,7 +50,32 @@ def get_llm_client() -> anthropic.AsyncAnthropic:
     return _llm_client
 
 
-app = FastAPI(title="BreachRadar AI")
+# Fonctions lancées au démarrage (main.py y ajoute la création des index)
+startup_hooks = []
+
+
+@asynccontextmanager
+async def lifespan(_app):
+    for hook in startup_hooks:
+        await hook()
+    yield
+    client.close()
+
+
+# Documentation interactive désactivée en production (surface d'attaque inutile)
+app = FastAPI(title="BreachRadar AI", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    if request.url.path.startswith("/api/"):
+        # Réponses propres à chaque utilisateur (comptes, recherches) : jamais mises en cache
+        response.headers.setdefault("Cache-Control", "no-store")
+    return response
 api_router = APIRouter(prefix="/api")
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -61,15 +94,15 @@ SENSITIVE_DATA = {
 
 # ---------- Models ----------
 class InvestigateRequest(BaseModel):
-    target: str
+    target: str = Field(max_length=254)
 
 
 class BatchRequest(BaseModel):
-    targets: List[str]
+    targets: List[str] = Field(max_length=50)
 
 
 class WatchCreate(BaseModel):
-    target: str
+    target: str = Field(max_length=254)
 
 
 class Watch(BaseModel):
@@ -496,7 +529,8 @@ async def build_investigation(target: str, owner: Optional[str], with_ai: bool =
     return inv
 
 
-@api_router.post("/investigate", response_model=Investigation)
+@api_router.post("/investigate", response_model=Investigation,
+                 dependencies=[Depends(limit("investigate", 20, 600)), Depends(limit("investigate-day", 200, 86400))])
 async def investigate(req: InvestigateRequest, owner: Optional[str] = Depends(get_owner)):
     target = req.target.strip()
     if not target:
@@ -504,7 +538,8 @@ async def investigate(req: InvestigateRequest, owner: Optional[str] = Depends(ge
     return await build_investigation(target, owner, with_ai=True)
 
 
-@api_router.post("/investigate/batch", response_model=List[Investigation])
+@api_router.post("/investigate/batch", response_model=List[Investigation],
+                 dependencies=[Depends(limit("batch", 5, 600))])
 async def investigate_batch(req: BatchRequest, owner: Optional[str] = Depends(get_owner)):
     targets, seen = [], set()
     for t in req.targets:
@@ -524,7 +559,8 @@ async def investigate_batch(req: BatchRequest, owner: Optional[str] = Depends(ge
     return results
 
 
-@api_router.post("/investigation/{inv_id}/report", response_model=Investigation)
+@api_router.post("/investigation/{inv_id}/report", response_model=Investigation,
+                 dependencies=[Depends(limit("report", 20, 3600))])
 async def generate_report(inv_id: str, owner: Optional[str] = Depends(get_owner)):
     doc = await db.investigations.find_one({"id": inv_id, "owner": owner}, {"_id": 0})
     if not doc:
@@ -593,7 +629,7 @@ async def _refresh_watch(watch: Watch) -> Watch:
     return watch
 
 
-@api_router.post("/watchlist", response_model=Watch)
+@api_router.post("/watchlist", response_model=Watch, dependencies=[Depends(limit("watch", 30, 600))])
 async def add_watch(req: WatchCreate, owner: Optional[str] = Depends(get_owner)):
     target = req.target.strip()
     if not target:
@@ -623,7 +659,7 @@ async def get_watchlist(owner: Optional[str] = Depends(get_owner)):
     return [Watch(**d) for d in docs]
 
 
-@api_router.post("/watchlist/{wid}/check", response_model=Watch)
+@api_router.post("/watchlist/{wid}/check", response_model=Watch, dependencies=[Depends(limit("watch", 30, 600))])
 async def check_watch(wid: str, owner: Optional[str] = Depends(get_owner)):
     doc = await db.watchlist.find_one({"id": wid, "owner": owner}, {"_id": 0})
     if not doc:
@@ -633,7 +669,8 @@ async def check_watch(wid: str, owner: Optional[str] = Depends(get_owner)):
     return watch
 
 
-@api_router.post("/watchlist/check-all", response_model=List[Watch])
+@api_router.post("/watchlist/check-all", response_model=List[Watch],
+                 dependencies=[Depends(limit("watch-all", 10, 600))])
 async def check_all_watches(owner: Optional[str] = Depends(get_owner)):
     if not owner:
         return []
@@ -675,8 +712,3 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("shutdown")
-async def shutdown_db_client():
-    client.close()

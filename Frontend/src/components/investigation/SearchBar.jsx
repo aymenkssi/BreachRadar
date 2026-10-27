@@ -35,7 +35,7 @@ export const SearchBar = ({ onSearch, loading }) => {
     <div data-testid="investigation-search-bar" className="w-full">
       <form onSubmit={submit} className="relative">
         <div className="group relative flex items-center rounded-2xl border border-border bg-card/80 backdrop-blur-md shadow-xl transition-all focus-within:border-primary/60 focus-within:shadow-primary/10">
-          <div className="pl-5 text-muted-foreground">
+          <div className="pl-4 text-muted-foreground sm:pl-5">
             {Meta ? <Meta.icon className="h-5 w-5 text-primary" /> : <Search className="h-5 w-5" />}
           </div>
           <input
@@ -43,7 +43,7 @@ export const SearchBar = ({ onSearch, loading }) => {
             value={value}
             onChange={(e) => setValue(e.target.value)}
             placeholder="Entrez un email, un domaine ou un nom d'utilisateur à investiguer…"
-            className="font-mono-x flex-1 bg-transparent px-4 py-5 text-sm sm:text-base outline-none placeholder:text-muted-foreground/60"
+            className="font-mono-x min-w-0 flex-1 bg-transparent px-3 py-5 text-sm outline-none placeholder:text-muted-foreground/60 sm:px-4 sm:text-base"
           />
           {Meta && (
             <span className="mr-2 hidden sm:inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
@@ -53,13 +53,14 @@ export const SearchBar = ({ onSearch, loading }) => {
           <Button
             type="submit"
             data-testid="investigate-btn"
+            aria-label="Investiguer"
             disabled={loading || !value.trim()}
-            className="m-2 h-12 rounded-xl px-6 font-heading font-semibold"
+            className="m-2 h-12 flex-shrink-0 rounded-xl px-4 font-heading font-semibold sm:px-6"
           >
             {loading ? (
-              <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Analyse…</>
+              <><Loader2 className="h-4 w-4 animate-spin min-[420px]:mr-2" /><span className="hidden min-[420px]:inline">Analyse…</span></>
             ) : (
-              <><Radar className="mr-2 h-4 w-4" /> Investiguer</>
+              <><Radar className="h-4 w-4 min-[420px]:mr-2" /><span className="hidden min-[420px]:inline">Investiguer</span></>
             )}
           </Button>
         </div>

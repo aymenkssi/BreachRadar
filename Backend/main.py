@@ -5,14 +5,13 @@ import billing
 import premium
 import privacy
 import promo
-from server import app, db
+from server import app, db, startup_hooks
 
 for router in (accounts.router, privacy.router, billing.router, premium.router, admin.router, admin.public_router,
                promo.router, promo.public_router):
     app.include_router(router)
 
 
-@app.on_event("startup")
 async def create_indexes():
     await db.users.create_index("email", unique=True)
     await db.users.create_index("id", unique=True)
@@ -26,3 +25,7 @@ async def create_indexes():
     await db.audit_logs.create_index("created_at")
     await db.promo_codes.create_index("code", unique=True)
     await db.promo_redemptions.create_index([("code", 1), ("user_id", 1)], unique=True)
+    await db.rate_limits.create_index("expires_at", expireAfterSeconds=0)
+
+
+startup_hooks.append(create_indexes)

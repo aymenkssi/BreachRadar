@@ -163,6 +163,19 @@ cd /opt/apps/breachradar
 ./deploy.sh
 ```
 
+## Sécurité en place
+
+- HTTPS (Traefik), HSTS, Content-Security-Policy stricte (scripts du site et de PayPal uniquement),
+  X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy ; réponses de l'API jamais mises en cache.
+- Limitation du nombre de requêtes par IP et par compte (recherches, rapports IA, inscription,
+  connexion, codes e-mail, codes promo, paiement) : réponse 429 au-delà. Traefik transmet l'IP
+  réelle ; un en-tête X-Forwarded-For falsifié par le visiteur est ignoré.
+- Mots de passe : bcrypt ; verrouillage après 10 échecs ; un changement de mot de passe ferme les
+  sessions ouvertes. `JWT_SECRET` doit faire au moins 32 caractères (`openssl rand -hex 32`).
+- Secrets de l'admin chiffrés en base ; MongoDB non exposée ; documentation interactive de l'API désactivée.
+- Polices hébergées sur le site (aucun appel à Google Fonts) ; vérification de mot de passe faite
+  dans le navigateur (k-anonymat).
+
 ## Commandes utiles
 
 ```bash

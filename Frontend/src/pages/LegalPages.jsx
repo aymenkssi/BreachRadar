@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft, Radar } from "lucide-react";
 import { getLegal } from "@/lib/api";
+import { usePageMeta } from "@/lib/usePageMeta";
 
 // Pages Mentions légales, CGV et Politique de confidentialité. Les informations sur l'éditeur
 // (raison sociale, SIRET, hébergeur, médiateur…) se saisissent dans l'administration ; tant
@@ -17,7 +18,16 @@ const useLegal = () => {
 const V = ({ value, label }) =>
   value ? <>{value}</> : <span className="rounded bg-amber-500/15 px-1 text-amber-500">[à compléter : {label}]</span>;
 
-const Layout = ({ title, children }) => (
+const META = {
+  "Mentions légales": ["/mentions-legales", "Éditeur, hébergeur et sources des données du site BreachRadar."],
+  "Conditions générales de vente et d'utilisation": ["/cgv", "Conditions d'utilisation de BreachRadar et de l'abonnement Premium : prix, résiliation, rétractation."],
+  "Politique de confidentialité": ["/confidentialite", "Données traitées par BreachRadar, durées de conservation, sous-traitants et exercice de vos droits (RGPD)."],
+};
+
+const Layout = ({ title, children }) => {
+  const [path, description] = META[title] || ["/", ""];
+  usePageMeta({ title: `${title} · BreachRadar`, description, path });
+  return (
   <div className="min-h-screen bg-background text-foreground">
     <header className="border-b border-border">
       <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-4">
@@ -44,7 +54,8 @@ const Layout = ({ title, children }) => (
       </nav>
     </footer>
   </div>
-);
+  );
+};
 
 const Editor = ({ l }) => (
   <>

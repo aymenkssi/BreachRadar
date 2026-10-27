@@ -17,7 +17,8 @@ export const AccountSheet = ({ open, onOpenChange, tab, onTabChange }) => {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetTrigger asChild>
-        <Button variant={user?.premium ? "default" : "outline"} size="sm" className="gap-2" data-testid="account-open-btn">
+        <Button variant={user?.premium ? "default" : "outline"} size="sm" className="gap-2" data-testid="account-open-btn"
+          aria-label={user ? (user.premium ? "Premium, mon compte" : "Mon compte") : "Connexion"}>
           {!ready ? <Loader2 className="h-4 w-4 animate-spin" />
             : user ? (user.premium ? <Crown className="h-4 w-4" /> : <UserRound className="h-4 w-4" />)
               : <LogIn className="h-4 w-4" />}

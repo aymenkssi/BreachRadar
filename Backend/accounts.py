@@ -12,7 +12,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, EmailStr, Field
 
 import mailer
-from security import bearer_user_id, create_token, hash_password, verify_password
+from ratelimit import limit
+from security import bearer_claims, create_token, hash_password, verify_password
 from server import db
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -121,9 +122,11 @@ async def check_code(recipient: str, purpose: str, code: str, scope: str = "") -
 
 # ---------- Dépendances ----------
 async def current_user(request: Request) -> dict:
-    user_id = bearer_user_id(request)
-    user = await db.users.find_one({"id": user_id}, {"_id": 0}) if user_id else None
-    if not user:
+    claims = bearer_claims(request) or {}
+    user = await db.users.find_one({"id": claims["sub"]}, {"_id": 0}) if claims.get("sub") else None
+    # Un changement de mot de passe invalide les sessions ouvertes avant lui
+    valid_after = parse_dt(user.get("tokens_valid_after")) if user else None
+    if not user or (valid_after and claims.get("iat", 0) < int(valid_after.timestamp())):
         raise HTTPException(status_code=401, detail="Connexion requise")
     return user
 
@@ -152,7 +155,7 @@ async def session(user: dict) -> dict:
 
 
 # ---------- Routes ----------
-@router.post("/register")
+@router.post("/register", dependencies=[Depends(limit("register", 5, 3600))])
 async def register(req: Registration):
     if not req.accept_terms:
         raise HTTPException(status_code=400, detail="Vous devez accepter les CGV et la politique de confidentialité.")
@@ -177,7 +180,7 @@ async def register(req: Registration):
     return {"status": "code_sent"}
 
 
-@router.post("/verify")
+@router.post("/verify", dependencies=[Depends(limit("verify", 20, 600))])
 async def verify(req: CodeCheck):
     email = normalize(req.email)
     user = await db.users.find_one({"email": email}, {"_id": 0})
@@ -187,7 +190,7 @@ async def verify(req: CodeCheck):
     return await session(user)
 
 
-@router.post("/resend")
+@router.post("/resend", dependencies=[Depends(limit("resend", 5, 3600))])
 async def resend(req: EmailOnly):
     email = normalize(req.email)
     user = await db.users.find_one({"email": email}, {"_id": 0})
@@ -196,7 +199,7 @@ async def resend(req: EmailOnly):
     return {"status": "code_sent"}
 
 
-@router.post("/login")
+@router.post("/login", dependencies=[Depends(limit("login", 20, 600))])
 async def login(req: Credentials):
     email = normalize(req.email)
     user = await db.users.find_one({"email": email}, {"_id": 0})
@@ -222,7 +225,7 @@ async def login(req: Credentials):
     return await session(user)
 
 
-@router.post("/forgot")
+@router.post("/forgot", dependencies=[Depends(limit("forgot", 5, 3600))])
 async def forgot(req: EmailOnly):
     email = normalize(req.email)
     if await db.users.find_one({"email": email}, {"_id": 0, "id": 1}):
@@ -230,7 +233,7 @@ async def forgot(req: EmailOnly):
     return {"status": "code_sent"}
 
 
-@router.post("/reset")
+@router.post("/reset", dependencies=[Depends(limit("reset", 20, 600))])
 async def reset(req: PasswordReset):
     email = normalize(req.email)
     user = await db.users.find_one({"email": email}, {"_id": 0})
@@ -239,6 +242,8 @@ async def reset(req: PasswordReset):
     await db.users.update_one({"id": user["id"]}, {"$set": {
         "password_hash": hash_password(req.password), "email_verified": True,
         "login_failures": 0, "locked_until": None,
+        # secondes entières : un jeton émis dans la même seconde, juste après, reste valable
+        "tokens_valid_after": now().replace(microsecond=0).isoformat(),
     }})
     return await session(user)
 

@@ -3,39 +3,62 @@
     <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <meta name="theme-color" content="#000000" />
-        <meta name="description" content="BreachRadar AI : investigation de fuites de données pour e-mails et domaines, avec rapport d'analyse par IA." />
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@600&display=swap" rel="stylesheet" />
-        <!--
-        manifest.json provides metadata used when your web app is installed on a
-        user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/
-        -->
-        <!--
-        Notice the use of %PUBLIC_URL% in the tags above.
-        It will be replaced with the URL of the `public` folder during the build.
-        Only files inside the `public` folder can be referenced from the HTML.
+        <title>BreachRadar AI : vos données ont-elles fuité ? Vérification gratuite</title>
+        <meta name="description" content="Vérifiez gratuitement si votre adresse e-mail ou votre domaine apparaît dans une fuite de données : score de risque, détail des fuites, rapport d'analyse par IA et alertes en cas de nouvelle fuite." />
+        <link rel="canonical" href="https://breachradar.fr/" />
+        <meta name="robots" content="index, follow, max-image-preview:large" />
+        <meta name="theme-color" content="#080d16" />
+        <link rel="icon" href="%PUBLIC_URL%/favicon.ico" sizes="48x48" />
+        <link rel="icon" href="%PUBLIC_URL%/favicon-32.png" type="image/png" sizes="32x32" />
+        <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png" />
+        <link rel="manifest" href="%PUBLIC_URL%/manifest.webmanifest" />
 
-        Unlike "/favicon.ico" or "favicon.ico", "%PUBLIC_URL%/favicon.ico" will
-        work correctly both with client-side routing and a non-root public URL.
-        Learn how to configure a non-root public URL by running `npm run build`.
-        -->
-        <title>BreachRadar AI</title>
-        <script>window.addEventListener("error",function(e){if(e.error instanceof DOMException&&e.error.name==="DataCloneError"&&e.message&&e.message.includes("PerformanceServerTiming")){e.stopImmediatePropagation();e.preventDefault()}},true);</script>
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="BreachRadar AI" />
+        <meta property="og:locale" content="fr_FR" />
+        <meta property="og:url" content="https://breachradar.fr/" />
+        <meta property="og:title" content="BreachRadar AI : vos données ont-elles fuité ?" />
+        <meta property="og:description" content="Vérifiez gratuitement une adresse e-mail ou un domaine dans les fuites de données connues, avec score de risque et rapport d'analyse par IA." />
+        <meta property="og:image" content="https://breachradar.fr/og-image.png" />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta property="og:image:alt" content="BreachRadar AI, vérification des fuites de données" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content="BreachRadar AI : vos données ont-elles fuité ?" />
+        <meta name="twitter:description" content="Vérifiez gratuitement une adresse e-mail ou un domaine dans les fuites de données connues." />
+        <meta name="twitter:image" content="https://breachradar.fr/og-image.png" />
+
+        <script type="application/ld+json">
+        {
+            "@context": "https://schema.org",
+            "@type": "WebApplication",
+            "name": "BreachRadar AI",
+            "url": "https://breachradar.fr/",
+            "image": "https://breachradar.fr/og-image.png",
+            "applicationCategory": "SecurityApplication",
+            "operatingSystem": "Web",
+            "inLanguage": "fr",
+            "description": "Vérification des fuites de données pour une adresse e-mail, un domaine ou un nom d'utilisateur, avec score de risque, rapport d'analyse par IA et alertes en cas de nouvelle fuite.",
+            "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" }
+        }
+        </script>
     </head>
     <body>
-        <noscript>You need to enable JavaScript to run this app.</noscript>
-        <div id="root"></div>
-        <!--
-      This HTML file is a template.
-      If you open it directly in the browser, you will see an empty page.
-
-      You can add webfonts, meta tags, or analytics to this file.
-      The build step will place the bundled scripts into the <body> tag.
-
-      To begin the development, run `npm start` or `yarn start`.
-      To create a production bundle, use `npm run build` or `yarn build`.
-    -->
+        <noscript>BreachRadar nécessite JavaScript pour lancer une vérification.</noscript>
+        <div id="root">
+            <!-- Contenu affiché avant le chargement de l'application et lu par les moteurs de recherche ;
+                 remplacé par l'application React dès son démarrage. -->
+            <main style="max-width:720px;margin:12vh auto;padding:0 20px;font-family:system-ui,sans-serif;color:#94a3b8;background:#080d16">
+                <h1 style="color:#e2e8f0">BreachRadar AI : vos données ont-elles fuité ?</h1>
+                <p>Vérifiez gratuitement si une adresse e-mail, un domaine ou un nom d'utilisateur apparaît dans une
+                    fuite de données connue. BreachRadar calcule un score de compromission, détaille les fuites et les
+                    données exposées, et rédige un rapport d'analyse par intelligence artificielle.</p>
+                <p>Avec BreachRadar Premium, surveillez vos adresses chaque jour et recevez une alerte par e-mail dès
+                    qu'une nouvelle fuite les concerne, avec un rapport sur l'exposition de vos mots de passe.</p>
+                <p><a href="/mentions-legales" style="color:#38bdf8">Mentions légales</a> ·
+                    <a href="/cgv" style="color:#38bdf8">CGV</a> ·
+                    <a href="/confidentialite" style="color:#38bdf8">Confidentialité</a></p>
+            </main>
+        </div>
     </body>
 </html>

@@ -15,7 +15,8 @@ async def create_admin(email: str, password: str) -> dict:
     email = normalize(email)
     user = await db.users.find_one({"email": email}, {"_id": 0})
     fields = {"password_hash": hash_password(password), "email_verified": True,
-              "login_failures": 0, "locked_until": None}
+              "login_failures": 0, "locked_until": None,
+              "tokens_valid_after": now().replace(microsecond=0).isoformat()}
     if user:
         await db.users.update_one({"id": user["id"]}, {"$set": fields})
     else:
