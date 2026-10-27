@@ -25,7 +25,7 @@ public_router = APIRouter(prefix="/api/billing/promo", tags=["promos"])
 
 PLANS = ("monthly", "yearly")
 PLAN_LABELS = {"monthly": "mensuelle", "yearly": "annuelle"}
-MIN_PRICE = Decimal("0.50")  # en dessous, utiliser un code « accès offert »
+MIN_PAYPAL_PRICE = Decimal("0.50")  # PayPal refuse un abonnement à (presque) 0 € ; Stripe accepte 0 €
 CODE_PATTERN = r"^[A-Z0-9_-]{3,32}$"
 
 
@@ -130,10 +130,18 @@ async def check(req: PromoCheck, user: dict = Depends(current_user)):
     if price is None:
         raise HTTPException(status_code=400, detail="Prix de la formule non configuré.")
     after = discounted(promo, price)
-    if after < MIN_PRICE:
-        raise HTTPException(status_code=400, detail="Ce code ne s'applique pas à cette formule.")
+    stripe_ok = cfg.stripe_ready
+    paypal_ok = cfg.paypal_ready and paypal_compatible(promo) and after >= MIN_PAYPAL_PRICE
+    if (cfg.stripe_ready or cfg.paypal_ready) and not (stripe_ok or paypal_ok):
+        # Seul PayPal est proposé et le code n'y est pas utilisable : on dit pourquoi
+        if not paypal_compatible(promo):
+            detail = ("Ce code porte sur une durée limitée : il ne s'applique qu'au paiement par carte "
+                      "bancaire (Stripe), qui n'est pas proposé pour le moment.")
+        else:
+            detail = "Avec PayPal, le prix réduit doit rester d'au moins 0,50 €."
+        raise HTTPException(status_code=400, detail=detail)
     return {**out, "price_before": fmt_eur(price), "price_after": fmt_eur(after),
-            "stripe": cfg.stripe_ready, "paypal": cfg.paypal_ready and paypal_compatible(promo)}
+            "stripe": stripe_ok, "paypal": paypal_ok}
 
 
 class PromoRedeem(BaseModel):
@@ -172,8 +180,10 @@ class PromoIn(BaseModel):
 
     @model_validator(mode="after")
     def check_values(self):
-        if self.kind == "percent" and not 1 <= self.value <= 99:
-            raise ValueError("Réduction en % : entre 1 et 99 (100 % : utilisez « accès offert »).")
+        if self.kind == "percent" and not 1 <= self.value <= 100:
+            raise ValueError("Réduction en % : entre 1 et 100.")
+        if self.kind == "percent" and self.value == 100 and self.duration == "forever":
+            raise ValueError("100 % sur toute la durée : utilisez plutôt un code « accès offert ».")
         if self.kind == "amount" and not 0.5 <= self.value <= 1000:
             raise ValueError("Réduction en € : entre 0,50 et 1 000.")
         if self.kind == "free" and not self.days:

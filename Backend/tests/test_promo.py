@@ -23,9 +23,10 @@ def test_admin_creates_and_lists_codes(env, admin_headers):  # noqa: F811
     assert generated["code"].startswith("BR-") and generated["description"] == "30 jours de Premium offerts"
     assert c.post("/api/admin/promos", json={"code": "BIENVENUE20", "kind": "percent", "value": 10},
                   headers=admin_headers).status_code == 409
-    assert c.post("/api/admin/promos", json={"kind": "percent", "value": 100},
+    assert c.post("/api/admin/promos", json={"kind": "percent", "value": 100, "duration": "forever"},
                   headers=admin_headers).status_code == 422
-    assert len(c.get("/api/admin/promos", headers=admin_headers).json()) == 2
+    assert create(c, admin_headers, code="MOISOFFERT", value=100)["description"] == "-100 % sur la première échéance"
+    assert len(c.get("/api/admin/promos", headers=admin_headers).json()) == 3
     user = signup(env)
     assert c.get("/api/admin/promos", headers=user).status_code == 403
 
@@ -128,3 +129,22 @@ def test_paypal_discount_is_set_by_server(env, admin_headers, paypal):  # noqa: 
 @pytest.mark.parametrize("label,expected", [("4,99 €", "4.99"), ("49 €", "49"), ("", None)])
 def test_parse_price(label, expected):
     assert (str(promo.parse_price(label)) if promo.parse_price(label) is not None else None) == expected
+
+
+def test_big_discount_messages_depend_on_payment_methods(env, admin_headers, monkeypatch):  # noqa: F811
+    c = env["client"]
+    create(c, admin_headers, code="QUASI", value=95)                        # 1re échéance : carte seulement
+    create(c, admin_headers, code="QUASITOUJOURS", value=95, duration="forever")
+    user = signup(env)
+    cfg = {"value": payment_config(stripe_enabled=False)}               # seul PayPal est proposé
+
+    async def get_config():
+        return cfg["value"]
+    monkeypatch.setattr(billing, "get_config", get_config)
+    r = c.post("/api/billing/promo/check", json={"code": "QUASI", "plan": "monthly"}, headers=user)
+    assert r.status_code == 400 and "carte bancaire" in r.json()["detail"]
+    r = c.post("/api/billing/promo/check", json={"code": "QUASITOUJOURS", "plan": "monthly"}, headers=user)
+    assert r.status_code == 400 and "0,50 €" in r.json()["detail"]
+    cfg["value"] = payment_config()                                      # Stripe ajouté : la carte accepte
+    r = c.post("/api/billing/promo/check", json={"code": "QUASI", "plan": "monthly"}, headers=user).json()
+    assert r["price_after"] == "0,25 €" and r["stripe"] and not r["paypal"]

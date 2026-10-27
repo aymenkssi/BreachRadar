@@ -113,7 +113,7 @@ export const AdminPromos = () => {
           )}
           <p className="mt-3 text-xs text-muted-foreground">
             {free ? "Le client active l'accès depuis le champ « Code promo », sans paiement."
-              : form.duration === "forever" ? "Utilisable par carte (Stripe) et PayPal."
+              : form.duration === "forever" ? "Utilisable par carte (Stripe) et PayPal (avec PayPal, le prix réduit doit rester ≥ 0,50 €)."
                 : "Utilisable par carte (Stripe) uniquement : PayPal ne permet qu'une réduction sur toute la durée."}
             {" "}Un compte ne peut utiliser un code qu'une fois.
           </p>

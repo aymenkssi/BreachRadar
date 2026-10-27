@@ -390,8 +390,11 @@ async def paypal_create(req: Checkout, user: dict = Depends(current_user)):
         price = promo.parse_price(cfg.price_monthly_label if req.plan == "monthly" else cfg.price_yearly_label)
         if price is None:
             raise HTTPException(status_code=400, detail="Prix de la formule non configuré.")
+        after = promo.discounted(p, price)
+        if after < promo.MIN_PAYPAL_PRICE:
+            raise HTTPException(status_code=400, detail="Avec PayPal, le prix réduit doit rester d'au moins 0,50 €.")
         body["plan"] = {"billing_cycles": [{"sequence": 1, "pricing_scheme": {
-            "fixed_price": {"value": f"{promo.discounted(p, price):.2f}", "currency_code": "EUR"}}}]}
+            "fixed_price": {"value": f"{after:.2f}", "currency_code": "EUR"}}}]}
     try:
         sub = await paypal(cfg, "POST", "/v1/billing/subscriptions", body)
     except Exception as e:
