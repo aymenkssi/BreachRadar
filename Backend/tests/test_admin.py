@@ -137,7 +137,8 @@ def test_stripe_checkout_confirm_cancel_and_webhook(env, stripe_env, monkeypatch
     stripe_env["sessions"]["cs_other"] = {"client_reference_id": "autre", "subscription": stripe_env["subs"]["sub_1"]}
     assert c.post("/api/billing/stripe/confirm", json={"session_id": "cs_other"}, headers=headers).status_code == 400
     me = c.post("/api/billing/stripe/confirm", json={"session_id": "cs_1"}, headers=headers).json()
-    assert me["premium"] and me["subscription"] == {"provider": "stripe", "plan": "yearly", "status": "ACTIVE"}
+    assert me["premium"] and me["subscription"] == {
+        "provider": "stripe", "plan": "yearly", "status": "ACTIVE", "trial_end": None}
     assert me["premium_until"].startswith("2100-01-02")
 
     me = c.post("/api/billing/cancel", headers=headers).json()

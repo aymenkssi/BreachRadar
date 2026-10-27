@@ -288,7 +288,8 @@ def test_subscription_activation_and_webhooks(env, paypal):
     conf = c.get("/api/billing/config").json()
     assert conf["enabled"] and conf["paypal"]["enabled"] and conf["stripe"]["enabled"]
     me = c.post("/api/billing/paypal/subscription", json={"subscription_id": "I-1"}, headers=headers).json()
-    assert me["premium"] and me["subscription"] == {"provider": "paypal", "plan": "yearly", "status": "ACTIVE"}
+    assert me["premium"] and me["subscription"] == {
+        "provider": "paypal", "plan": "yearly", "status": "ACTIVE", "trial_end": None}
 
     # Résiliation : l'accès reste ouvert jusqu'à la fin de la période payée
     me = c.post("/api/billing/cancel", headers=headers).json()

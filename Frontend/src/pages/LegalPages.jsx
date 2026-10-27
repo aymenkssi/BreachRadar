@@ -156,7 +156,11 @@ export const Terms = () => {
           <strong> {l.prices?.yearly}</strong> par an. Les prix sont indiqués en euros, toutes taxes comprises. Le prix
           applicable est celui affiché au moment de la souscription, après application éventuelle d'un code promo. Un code
           promo est valable dans les conditions indiquées lors de sa saisie (réduction, durée, formule, date limite et
-          nombre d'utilisations), une seule fois par compte, non cumulable et sans contrepartie financière ; une modification de prix n'est appliquée à un
+          nombre d'utilisations), une seule fois par compte, non cumulable et sans contrepartie financière. Un code « essai gratuit » ouvre
+          Premium sans paiement pendant le nombre de jours indiqué : le moyen de paiement est enregistré à la
+          souscription mais rien n'est prélevé pendant l'essai ; l'abonné peut résilier sans frais avant la fin de
+          l'essai depuis « Mon compte », faute de quoi l'abonnement à la formule choisie démarre automatiquement à
+          son terme, au prix affiché lors de la souscription ; une modification de prix n'est appliquée à un
           abonnement en cours qu'à son renouvellement, après information préalable de l'abonné qui peut alors résilier.</p>
       </section>
       <section>

@@ -111,9 +111,12 @@ async def get_config() -> PaymentConfig:
 
 # ---------- Application d'un abonnement à un compte ----------
 async def apply_subscription(user: dict, provider: str, sub_id: str, plan: Optional[str], status: str,
-                             period_end: Optional[datetime], customer_id: Optional[str] = None) -> dict:
+                             period_end: Optional[datetime], customer_id: Optional[str] = None,
+                             trial_end: Optional[datetime] = None) -> dict:
     update: Dict[str, Any] = {"subscription": {
         "provider": provider, "id": sub_id, "plan": plan, "status": status, "updated_at": now().isoformat(),
+        # Essai gratuit en cours (code promo « jours gratuits ») : premier prélèvement à cette date
+        "trial_end": trial_end.isoformat() if trial_end and trial_end > now() else None,
     }}
     if customer_id:
         update["stripe_customer_id"] = customer_id
@@ -170,20 +173,31 @@ async def paypal(cfg: PaymentConfig, method: str, path: str, json: Optional[dict
     return await asyncio.to_thread(_paypal_sync, cfg, method, path, json)
 
 
+async def _promo_plan(plan_id: str) -> Optional[dict]:
+    return await db.paypal_promo_plans.find_one({"plan_id": plan_id}, {"_id": 0}) if plan_id else None
+
+
 async def paypal_plan_key(cfg: PaymentConfig, plan_id: str) -> Optional[str]:
     """Formule (monthly/yearly) d'un plan PayPal : plan standard, ou plan créé pour un code promo."""
     key = cfg.plan_for("paypal", plan_id)
     if key or not plan_id:
         return key
-    doc = await db.paypal_promo_plans.find_one({"plan_id": plan_id}, {"_id": 0, "plan_key": 1})
+    doc = await _promo_plan(plan_id)
     return doc["plan_key"] if doc else None
+
+
+def _paypal_in_trial(sub: dict) -> bool:
+    executions = (sub.get("billing_info") or {}).get("cycle_executions") or []
+    return any(c.get("tenure_type") == "TRIAL" and c.get("cycles_remaining", 0) > 0 for c in executions)
 
 
 async def apply_paypal(cfg: PaymentConfig, user: dict, sub: dict) -> dict:
     period_end = parse_dt((sub.get("billing_info") or {}).get("next_billing_time"))
     status = PAYPAL_STATUS.get(sub.get("status", ""), "PENDING")
+    promo_plan = await _promo_plan(sub.get("plan_id", ""))
+    trial_end = period_end if promo_plan and promo_plan.get("free_trial") and _paypal_in_trial(sub) else None
     return await apply_subscription(user, "paypal", sub["id"], await paypal_plan_key(cfg, sub.get("plan_id", "")),
-                                    status, period_end)
+                                    status, period_end, trial_end=trial_end)
 
 
 def _eur(value) -> dict:
@@ -200,7 +214,13 @@ async def promo_paypal_plan(cfg: PaymentConfig, p: dict, plan_key: str, price, a
     base = await paypal(cfg, "GET", f"/v1/billing/plans/{getattr(cfg, f'paypal_plan_{plan_key}')}")
     freq = {"interval_unit": PLAN_INFO[plan_key]["paypal_unit"], "interval_count": 1}
     trials = promo.trial_cycles(p, plan_key)
-    if trials:
+    if p["kind"] == "free":
+        # Essai gratuit de N jours (sans prix) puis tarif normal de la formule
+        cycles = [{"frequency": {"interval_unit": "DAY", "interval_count": p["days"]}, "tenure_type": "TRIAL",
+                   "sequence": 1, "total_cycles": 1},
+                  {"frequency": freq, "tenure_type": "REGULAR", "sequence": 2, "total_cycles": 0,
+                   "pricing_scheme": _eur(price)}]
+    elif trials:
         trial = {"frequency": freq, "tenure_type": "TRIAL", "sequence": 1, "total_cycles": trials}
         if after > 0:
             trial["pricing_scheme"] = _eur(after)
@@ -216,7 +236,8 @@ async def promo_paypal_plan(cfg: PaymentConfig, p: dict, plan_key: str, price, a
         "payment_preferences": {"auto_bill_outstanding": True, "payment_failure_threshold": 1},
     })
     await db.paypal_promo_plans.insert_one({"key": key, "plan_id": created["id"], "plan_key": plan_key,
-                                            "code": p["code"], "created_at": now().isoformat()})
+                                            "code": p["code"], "free_trial": p["kind"] == "free",
+                                            "created_at": now().isoformat()})
     return created["id"]
 
 
@@ -270,8 +291,10 @@ async def apply_stripe(cfg: PaymentConfig, user: dict, sub: dict) -> dict:
         status = "CANCELLED"
     customer = sub.get("customer")
     customer_id = customer.get("id") if isinstance(customer, dict) else customer
+    trial_end = datetime.fromtimestamp(sub["trial_end"], timezone.utc) \
+        if sub.get("status") == "trialing" and sub.get("trial_end") else None
     return await apply_subscription(user, "stripe", sub["id"], cfg.plan_for("stripe", stripe_price_id(sub)),
-                                    status, stripe_period_end(sub), customer_id)
+                                    status, stripe_period_end(sub), customer_id, trial_end)
 
 
 async def stripe_call(fn, *args, **kwargs) -> dict:
@@ -375,10 +398,7 @@ class Checkout(BaseModel):
 async def _promo_for_checkout(req: Checkout, user: dict, cfg: PaymentConfig) -> Optional[dict]:
     if not (req.promo_code or "").strip():
         return None
-    p = await promo.find_valid(req.promo_code, user, req.plan)
-    if p["kind"] == "free":
-        raise HTTPException(status_code=400, detail="Ce code s'active sans paiement, depuis le champ code promo.")
-    return p
+    return await promo.find_valid(req.promo_code, user, req.plan)
 
 
 async def _stripe_coupon(cfg: PaymentConfig, p: dict) -> str:
@@ -503,7 +523,9 @@ async def stripe_checkout(req: Checkout, user: dict = Depends(current_user)):
     else:
         params["customer_email"] = user["email"]
     try:
-        if p:
+        if p and p["kind"] == "free":
+            params["subscription_data"]["trial_period_days"] = p["days"]  # essai gratuit, puis tarif normal
+        elif p:
             params["discounts"] = [{"coupon": await _stripe_coupon(cfg, p)}]
         session = await stripe_call(stripe.checkout.Session.create, api_key=cfg.stripe_secret_key, **params)
     except Exception as e:

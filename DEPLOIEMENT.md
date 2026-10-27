@@ -117,8 +117,12 @@ s'affiche avant le paiement. Un compte ne peut utiliser un code qu'une fois.
     le tableau de bord PayPal. Seule limite : une réduction sur toute la durée doit laisser au
     moins 0,50 € avec PayPal.
   - Formule annuelle : une réduction « pendant N mois » s'applique à la première année.
-- **Accès offert** : N jours de Premium sans paiement (partenaires, influenceurs, tests). Fonctionne
-  même si aucun moyen de paiement n'est configuré.
+- **Essai gratuit** : N jours offerts (1 à 365). Le client choisit sa formule et enregistre son moyen
+  de paiement (carte via Stripe ou PayPal) ; rien n'est prélevé pendant l'essai, il peut résilier sans
+  frais depuis « Mon compte », sinon l'abonnement démarre automatiquement à la fin de l'essai.
+  Stripe : `trial_period_days` ; PayPal : plan dédié avec période d'essai gratuite. Conseil : activer
+  dans Stripe l'e-mail de rappel avant la fin d'un essai (Paramètres → Facturation → Abonnements).
+- Pour offrir Premium **sans** moyen de paiement (partenaire, test) : Administration → Abonnés → Offrir.
 
 ### Pages légales (RGPD)
 

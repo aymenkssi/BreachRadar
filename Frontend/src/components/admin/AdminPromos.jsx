@@ -25,7 +25,7 @@ const Redemptions = ({ promo }) => {
   if (!rows.length) return <p className="text-xs text-muted-foreground">Aucune utilisation.</p>;
   return (
     <ul className="space-y-0.5 text-xs text-muted-foreground">
-      {rows.map((r) => <li key={r.user_id}>{fmtDate(r.at, true)} · {r.email} · {r.provider === "free" ? "accès offert" : r.provider}</li>)}
+      {rows.map((r) => <li key={r.user_id}>{fmtDate(r.at, true)} · {r.email} · {r.provider === "free" ? "accès offert (ancien code)" : r.provider}</li>)}
     </ul>
   );
 };
@@ -82,10 +82,10 @@ export const AdminPromos = () => {
             <Select id="pkind" label="Type" value={form.kind} onChange={set("kind")}>
               <option value="percent">Réduction en %</option>
               <option value="amount">Réduction en €</option>
-              <option value="free">Accès offert (sans paiement)</option>
+              <option value="free">Essai gratuit (jours offerts, puis abonnement)</option>
             </Select>
             {free ? (
-              <Field id="pdays" label="Jours offerts" type="number" min={1} value={form.days} onChange={set("days")} required />
+              <Field id="pdays" label="Jours gratuits" type="number" min={1} max={365} value={form.days} onChange={set("days")} required />
             ) : (
               <Field id="pvalue" label={form.kind === "percent" ? "Réduction (%)" : "Réduction (€)"} value={form.value}
                 onChange={set("value")} required />
@@ -105,14 +105,14 @@ export const AdminPromos = () => {
             <Field id="pexp" label="Expire le" type="date" value={form.expires_at} onChange={set("expires_at")} hint="Facultatif" />
             <Field id="pnote" label="Note interne" value={form.note} onChange={set("note")} placeholder="Ex. partenariat X" />
           </div>
-          {!free && (
+          {(
             <div className="mt-4 flex flex-wrap gap-4">
               <Toggle checked={form.monthly} onChange={set("monthly")} label="Formule mensuelle" />
               <Toggle checked={form.yearly} onChange={set("yearly")} label="Formule annuelle" />
             </div>
           )}
           <p className="mt-3 text-xs text-muted-foreground">
-            {free ? "Le client active l'accès depuis le champ « Code promo », sans paiement."
+            {free ? "Le client choisit sa formule et enregistre son moyen de paiement : rien n'est prélevé pendant l'essai (résiliable sans frais), puis l'abonnement démarre automatiquement. Carte (Stripe) et PayPal."
               : form.duration === "forever" ? "Utilisable par carte (Stripe) et PayPal (avec PayPal, le prix réduit doit rester ≥ 0,50 €)."
                 : "Utilisable par carte (Stripe) et PayPal (période d'essai au prix réduit, gratuite à 100 %, puis tarif normal)."}
             {" "}Un compte ne peut utiliser un code qu'une fois.
@@ -145,7 +145,7 @@ export const AdminPromos = () => {
                       </td>
                       <td className="py-2.5 pr-3 text-xs">
                         {p.description}
-                        {p.kind !== "free" && p.plans.length === 1 && <p className="text-[11px] text-muted-foreground">formule {p.plans[0] === "monthly" ? "mensuelle" : "annuelle"} seulement</p>}
+                        {p.plans.length === 1 && <p className="text-[11px] text-muted-foreground">formule {p.plans[0] === "monthly" ? "mensuelle" : "annuelle"} seulement</p>}
                       </td>
                       <td className="py-2.5 pr-3 text-xs">
                         <button type="button" className="flex items-center gap-1 hover:text-primary" onClick={() => setOpen(open === p.id ? null : p.id)}>

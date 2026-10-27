@@ -100,7 +100,6 @@ export const createPaypalSubscription = (plan, promoCode) =>
   axios.post(`${API}/billing/paypal/create`, { plan, promo_code: promoCode || null }).then((r) => r.data);
 export const checkPromo = (code, plan) =>
   axios.post(`${API}/billing/promo/check`, { code, plan }).then((r) => r.data);
-export const redeemPromo = (code) => axios.post(`${API}/billing/promo/redeem`, { code }).then((r) => r.data);
 export const confirmStripeCheckout = (sessionId) =>
   axios.post(`${API}/billing/stripe/confirm`, { session_id: sessionId }).then((r) => r.data);
 export const getLegal = () => axios.get(`${API}/legal`).then((r) => r.data);

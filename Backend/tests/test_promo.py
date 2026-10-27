@@ -20,7 +20,8 @@ def test_admin_creates_and_lists_codes(env, admin_headers):  # noqa: F811
     p = create(c, admin_headers, code="bienvenue 20")
     assert p["code"] == "BIENVENUE20" and p["description"] == "-20 % sur la première échéance"
     generated = create(c, admin_headers, kind="free", days=30)
-    assert generated["code"].startswith("BR-") and generated["description"] == "30 jours de Premium offerts"
+    assert generated["code"].startswith("BR-")
+    assert generated["description"] == "30 jours gratuits, puis abonnement au tarif normal"
     assert c.post("/api/admin/promos", json={"code": "BIENVENUE20", "kind": "percent", "value": 10},
                   headers=admin_headers).status_code == 409
     assert c.post("/api/admin/promos", json={"kind": "percent", "value": 100, "duration": "forever"},
@@ -50,32 +51,81 @@ def test_check_code_computes_price(env, admin_headers, monkeypatch):  # noqa: F8
     assert c.post("/api/billing/promo/check", json={"code": "INCONNU"}, headers=user).status_code == 400
 
 
-def test_expired_disabled_and_exhausted_codes(env, admin_headers):  # noqa: F811
+def test_expired_disabled_and_exhausted_codes(env, admin_headers, monkeypatch):  # noqa: F811
+    async def get_config():
+        return payment_config()
+    monkeypatch.setattr(billing, "get_config", get_config)
     c, db = env["client"], env["db"]
-    p = create(c, admin_headers, code="LIMITE", kind="free", days=7, max_redemptions=1)
+    p = create(c, admin_headers, code="LIMITE", max_redemptions=1)
     first, second = signup(env), signup(env, "bob@example.com")
-    assert c.post("/api/billing/promo/redeem", json={"code": "LIMITE"}, headers=first).status_code == 200
-    r = c.post("/api/billing/promo/redeem", json={"code": "LIMITE"}, headers=second)
-    assert r.status_code == 400 and "plus disponible" in r.json()["detail"]
-    create(c, admin_headers, code="FINI", kind="free", days=7, expires_at="2099-01-01")
+
+    def check(code, headers):
+        return c.post("/api/billing/promo/check", json={"code": code}, headers=headers)
+    assert check("LIMITE", first).status_code == 200
+    promo_doc = c.portal.call(db.promo_codes.find_one, {"code": "LIMITE"})
+    c.portal.call(promo.record_redemption, promo_doc, {"id": user_id(env), "email": "alice@example.com"}, "stripe")
+    assert check("LIMITE", first).status_code == 400
+    assert "plus disponible" in check("LIMITE", second).json()["detail"]
+    create(c, admin_headers, code="FINI", expires_at="2099-01-01")
     c.portal.call(db.promo_codes.update_one, {"code": "FINI"},
                   {"$set": {"expires_at": (promo.now() - timedelta(days=1)).isoformat()}})
-    assert "expiré" in c.post("/api/billing/promo/redeem", json={"code": "FINI"}, headers=second).json()["detail"]
-    off = create(c, admin_headers, code="COUPE", kind="free", days=7)
+    assert "expiré" in check("FINI", second).json()["detail"]
+    off = create(c, admin_headers, code="COUPE")
     c.patch(f"/api/admin/promos/{off['id']}", json={"active": False}, headers=admin_headers)
-    assert c.post("/api/billing/promo/redeem", json={"code": "COUPE"}, headers=second).status_code == 400
+    assert check("COUPE", second).status_code == 400
     assert [r["email"] for r in c.get(f"/api/admin/promos/{p['id']}/redemptions", headers=admin_headers).json()] \
         == ["alice@example.com"]
 
 
-def test_free_code_grants_premium_once(env, admin_headers):  # noqa: F811
+def test_free_trial_with_stripe_then_cancel(env, admin_headers, stripe_env):  # noqa: F811
     c = env["client"]
-    create(c, admin_headers, code="OFFERT30", kind="free", days=30)
+    create(c, admin_headers, code="ESSAI7", kind="free", days=7)
     user = signup(env)
-    me = c.post("/api/billing/promo/redeem", json={"code": "OFFERT30"}, headers=user).json()
-    assert me["premium"] and me["premium_until"][:10] == (promo.now() + timedelta(days=30)).date().isoformat()
-    again = c.post("/api/billing/promo/redeem", json={"code": "OFFERT30"}, headers=user)
-    assert again.status_code == 400 and "déjà utilisé" in again.json()["detail"]
+    r = c.post("/api/billing/promo/check", json={"code": "essai7", "plan": "monthly"}, headers=user).json()
+    assert r["description"] == "7 jours gratuits, puis 4,99 € par mois" and r["trial_days"] == 7
+    assert r["stripe"] and r["paypal"]
+    # Checkout : moyen de paiement enregistré, essai de 7 jours, aucune réduction
+    c.post("/api/billing/stripe/checkout", json={"plan": "monthly", "promo_code": "ESSAI7"}, headers=user)
+    checkout = stripe_env["last_checkout"]
+    assert checkout["subscription_data"]["trial_period_days"] == 7 and "discounts" not in checkout
+
+    uid = user_id(env)
+    trial_end = int((promo.now() + timedelta(days=7)).timestamp())
+    sub = stripe_sub("sub_t", uid, status="trialing", end=trial_end)
+    sub["trial_end"] = trial_end
+    stripe_env["subs"]["sub_t"] = sub
+    stripe_env["sessions"]["cs_t"] = {"client_reference_id": uid, "subscription": sub,
+                                      "metadata": {"promo_code": "ESSAI7"}}
+    me = c.post("/api/billing/stripe/confirm", json={"session_id": "cs_t"}, headers=user).json()
+    assert me["premium"] and me["subscription"]["status"] == "ACTIVE"
+    assert me["subscription"]["trial_end"][:10] == (promo.now() + timedelta(days=7)).date().isoformat()
+
+    # Résiliation pendant l'essai : aucun prélèvement, accès jusqu'à la fin de l'essai
+    me = c.post("/api/billing/cancel", headers=user).json()
+    assert me["premium"] and me["subscription"]["status"] == "CANCELLED"
+    assert stripe_env["subs"]["sub_t"]["cancel_at_period_end"] is True
+
+
+def test_free_trial_with_paypal(env, admin_headers, paypal):  # noqa: F811
+    c = env["client"]
+    create(c, admin_headers, code="ESSAI7", kind="free", days=7)
+    user = signup(env)
+    sub, plan = paypal_checkout(c, paypal, user, "yearly", "ESSAI7")
+    trial, regular = plan["billing_cycles"]
+    assert trial == {"frequency": {"interval_unit": "DAY", "interval_count": 7}, "tenure_type": "TRIAL",
+                     "sequence": 1, "total_cycles": 1}
+    assert regular["frequency"]["interval_unit"] == "YEAR"
+    assert regular["pricing_scheme"]["fixed_price"]["value"] == "49.99"
+    end = (promo.now() + timedelta(days=7)).replace(microsecond=0)
+    sub.update(status="ACTIVE", billing_info={
+        "next_billing_time": end.isoformat().replace("+00:00", "Z"),
+        "cycle_executions": [{"tenure_type": "TRIAL", "cycles_completed": 0, "cycles_remaining": 1},
+                             {"tenure_type": "REGULAR", "cycles_completed": 0, "cycles_remaining": 0}]})
+    me = c.post("/api/billing/paypal/subscription", json={"subscription_id": sub["id"]}, headers=user).json()
+    assert me["premium"] and me["subscription"]["plan"] == "yearly"
+    assert me["subscription"]["trial_end"][:10] == end.date().isoformat()
+    me = c.post("/api/billing/cancel", headers=user).json()
+    assert me["premium"] and me["subscription"]["status"] == "CANCELLED"
 
 
 def test_stripe_checkout_applies_coupon(env, admin_headers, stripe_env, monkeypatch):  # noqa: F811

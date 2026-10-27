@@ -82,7 +82,7 @@ def public_user(user: dict) -> dict:
         "premium": is_premium(user),
         "premium_until": user.get("premium_until"),
         "subscription": {"provider": sub.get("provider") or "paypal", "plan": sub.get("plan"),
-                         "status": sub.get("status")} if sub else None,
+                         "status": sub.get("status"), "trial_end": sub.get("trial_end")} if sub else None,
         "is_admin": is_admin(user),
     }
 

@@ -11,7 +11,7 @@ import {
 import { useAuth } from "@/components/AuthProvider";
 import {
   getBillingConfig, activateSubscription, cancelSubscription, startStripeCheckout, createPaypalSubscription,
-  checkPromo, redeemPromo, errorMessage,
+  checkPromo, errorMessage,
 } from "@/lib/api";
 
 const FEATURES = [
@@ -41,18 +41,25 @@ const loadPaypal = (clientId) => {
 const SubscriptionStatus = ({ user, onCancel, cancelling }) => {
   const sub = user.subscription || {};
   const cancelled = sub.status === "CANCELLED";
+  const inTrial = !cancelled && sub.trial_end && new Date(sub.trial_end) > new Date();
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-primary/30 bg-primary/10 p-4">
         <p className="font-heading flex items-center gap-2 font-semibold text-primary">
-          <Crown className="h-5 w-5" /> Premium actif
+          <Crown className="h-5 w-5" /> {inTrial ? "Essai gratuit en cours" : "Premium actif"}
         </p>
+        {inTrial && (
+          <p className="mt-1 text-sm text-muted-foreground" data-testid="trial-info">
+            Aucun prélèvement avant le <span className="text-foreground">{formatDate(sub.trial_end)}</span> : l'abonnement
+            {sub.plan === "yearly" ? " annuel" : " mensuel"} démarre alors automatiquement. Résiliez avant cette date pour ne rien payer.
+          </p>
+        )}
         <p className="mt-1 text-sm text-muted-foreground">
           {sub.plan && <>Formule {sub.plan === "yearly" ? "annuelle" : "mensuelle"}
             {sub.provider && <> ({sub.provider === "stripe" ? "carte bancaire" : "PayPal"})</>} · </>}
           {!sub.status && "accès offert jusqu'au "}
-          {sub.status && (cancelled ? "résiliée, accès jusqu'au " : "renouvellement le ")}
-          <span className="text-foreground">{formatDate(user.premium_until)}</span>
+          {sub.status && (cancelled ? "résiliée, accès jusqu'au " : inTrial ? "premier prélèvement le " : "renouvellement le ")}
+          <span className="text-foreground">{formatDate(inTrial ? sub.trial_end : user.premium_until)}</span>
         </p>
       </div>
       <ul className="space-y-2">
@@ -64,15 +71,18 @@ const SubscriptionStatus = ({ user, onCancel, cancelling }) => {
         <AlertDialog>
           <AlertDialogTrigger asChild>
             <Button variant="outline" size="sm" disabled={cancelling} data-testid="cancel-subscription-btn">
-              {cancelling && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Résilier l'abonnement
+              {cancelling && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} {inTrial ? "Résilier l'essai" : "Résilier l'abonnement"}
             </Button>
           </AlertDialogTrigger>
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>Résilier l'abonnement ?</AlertDialogTitle>
               <AlertDialogDescription>
-                Aucun nouveau prélèvement ne sera effectué. Vous gardez Premium jusqu'au {formatDate(user.premium_until)} ;
-                ensuite la veille et les alertes s'arrêtent.
+                {inTrial
+                  ? <>Vous ne serez pas prélevé. Vous gardez Premium jusqu'à la fin de l'essai, le {formatDate(sub.trial_end)} ;
+                    ensuite la veille et les alertes s'arrêtent.</>
+                  : <>Aucun nouveau prélèvement ne sera effectué. Vous gardez Premium jusqu'au {formatDate(user.premium_until)} ;
+                    ensuite la veille et les alertes s'arrêtent.</>}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -104,7 +114,8 @@ export const PremiumPanel = () => {
     getBillingConfig().then(setConfig).catch(() => setConfig({ enabled: false, plans: [] }));
   }, []);
 
-  const promoCode = promo && promo.kind !== "free" ? promo.code : null;
+  const promoCode = promo ? promo.code : null;
+  const trial = promo?.kind === "free";
   const paypalAllowed = config?.paypal?.enabled && (!promoCode || promo.paypal);
 
   const applyPromo = async (code = promoInput, forPlan = plan) => {
@@ -123,18 +134,6 @@ export const PremiumPanel = () => {
   const choosePlan = (key) => {
     setPlan(key);
     if (promo) applyPromo(promo.code, key);  // le prix réduit dépend de la formule
-  };
-
-  const redeemFree = async () => {
-    setPromoBusy(true);
-    try {
-      setUser(await redeemPromo(promo.code));
-      toast.success("Accès Premium offert activé !");
-    } catch (err) {
-      toast.error(errorMessage(err, "Code promo invalide."));
-    } finally {
-      setPromoBusy(false);
-    }
   };
 
   useEffect(() => {
@@ -199,14 +198,16 @@ export const PremiumPanel = () => {
             className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
         </div>
         <p className="mt-1 text-muted-foreground">{promo.description}
-          {promo.price_after && <> : <span className="text-foreground">{promo.price_after}</span> au lieu de {promo.price_before}</>}</p>
+          {promo.price_after && !trial && <> : <span className="text-foreground">{promo.price_after}</span> au lieu de {promo.price_before}</>}</p>
+      {trial && (
+        <p className="mt-1 text-xs text-muted-foreground" data-testid="trial-terms">
+          Votre moyen de paiement est enregistré mais rien n'est prélevé avant le{" "}
+          <span className="text-foreground">{formatDate(promo.trial_end)}</span>. Résiliable sans frais pendant l'essai depuis
+          « Mon compte » ; sinon l'abonnement démarre automatiquement à cette date.
+        </p>
+      )}
         {promoCode && config.paypal?.enabled && !promo.paypal && (
           <p className="mt-1 text-xs text-amber-500">Avec PayPal, ce code laisserait un prix inférieur à 0,50 € : il s'applique uniquement au paiement par carte bancaire.</p>
-        )}
-        {promo.kind === "free" && (
-          <Button size="sm" className="mt-2 w-full gap-2" onClick={redeemFree} disabled={promoBusy} data-testid="promo-redeem-btn">
-            {promoBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Gift className="h-4 w-4" />} Activer mon accès offert
-          </Button>
         )}
       </div>
     ) : (
@@ -240,9 +241,8 @@ export const PremiumPanel = () => {
       ) : !config.enabled ? (
         <>
           <p className="rounded-xl border border-border p-4 text-sm text-muted-foreground">
-            L'abonnement Premium sera bientôt disponible. Vous avez un code d'accès offert ? Saisissez-le ci-dessous.
+            L'abonnement Premium sera bientôt disponible.
           </p>
-          {promoBlock}
         </>
       ) : (
         <>
@@ -251,7 +251,11 @@ export const PremiumPanel = () => {
               <button key={p.key} type="button" onClick={() => choosePlan(p.key)} data-testid={`plan-${p.key}`}
                 className={`rounded-xl border p-4 text-left transition ${plan === p.key ? "border-primary bg-primary/10" : "border-border hover:border-primary/40"}`}>
                 <p className="text-xs font-mono-x uppercase tracking-wider text-muted-foreground">{p.label}</p>
-                {promoCode && plan === p.key && promo.price_after ? (
+                {promoCode && plan === p.key && trial ? (
+                  <p className="mt-1 font-heading text-xl font-bold">
+                    0 € <span className="text-sm font-normal text-muted-foreground">pendant {promo.trial_days} j, puis {p.price}</span>
+                  </p>
+                ) : promoCode && plan === p.key && promo.price_after ? (
                   <p className="mt-1 font-heading text-xl font-bold">
                     {promo.price_after} <span className="text-sm font-normal text-muted-foreground line-through">{p.price}</span>
                   </p>

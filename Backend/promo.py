@@ -3,7 +3,8 @@
 #    (repeating) ou sur toute la durée (forever). Stripe applique un coupon ; PayPal n'a pas de coupon
 #    d'abonnement : un plan PayPal dédié au code est créé, avec une période d'essai au prix réduit
 #    (éventuellement gratuite) suivie du tarif normal, ou un tarif réduit permanent pour « forever ».
-#  - free : N jours de Premium offerts, sans paiement.
+#  - free : essai gratuit de N jours. Le client choisit sa formule et enregistre son moyen de paiement ;
+#    rien n'est prélevé pendant l'essai (résiliable sans frais), puis l'abonnement démarre au tarif normal.
 # Chaque code peut être limité à une formule, à un nombre d'utilisations et à une date ; un compte
 # ne peut utiliser un code qu'une fois.
 import hashlib
@@ -19,7 +20,7 @@ from pydantic import BaseModel, Field, model_validator
 from pymongo.errors import DuplicateKeyError
 
 from ratelimit import limit
-from accounts import admin_user, audit, current_user, now, parse_dt, public_user
+from accounts import admin_user, audit, current_user, now, parse_dt
 from server import db
 
 router = APIRouter(prefix="/api/admin/promos", tags=["promos"])
@@ -52,7 +53,7 @@ def discounted(promo: dict, price: Decimal) -> Decimal:
 
 def describe(promo: dict) -> str:
     if promo["kind"] == "free":
-        return f"{promo['days']} jours de Premium offerts"
+        return f"{promo['days']} jours gratuits, puis abonnement au tarif normal"
     value = Decimal(str(promo["value"]))
     amount = f"-{value.normalize():f} %".replace(".", ",") if promo["kind"] == "percent" else f"-{fmt_eur(value)}"
     period = {"once": "sur la première échéance", "forever": "sur toute la durée de l'abonnement",
@@ -63,7 +64,7 @@ def describe(promo: dict) -> str:
 def paypal_ok_for(promo: dict, after: Decimal) -> bool:
     """Réduction limitée dans le temps : période d'essai PayPal (même gratuite). Réduction permanente :
     le tarif réduit doit rester d'au moins 0,50 € (un abonnement PayPal ne peut pas être gratuit pour toujours)."""
-    return promo["kind"] != "free" and (promo["duration"] != "forever" or after >= MIN_PAYPAL_PRICE)
+    return promo["kind"] == "free" or promo["duration"] != "forever" or after >= MIN_PAYPAL_PRICE
 
 
 def trial_cycles(promo: dict, plan: str) -> int:
@@ -94,7 +95,7 @@ async def find_valid(code: str, user: dict, plan: Optional[str] = None) -> dict:
         raise HTTPException(status_code=400, detail="Ce code promo n'est plus disponible.")
     if await db.promo_redemptions.find_one({"code": promo["code"], "user_id": user["id"]}, {"_id": 1}):
         raise HTTPException(status_code=400, detail="Vous avez déjà utilisé ce code promo.")
-    if plan and promo["kind"] != "free" and plan not in promo.get("plans", PLANS):
+    if plan and plan not in promo.get("plans", PLANS):
         raise HTTPException(status_code=400,
                             detail=f"Ce code ne s'applique pas à la formule {PLAN_LABELS.get(plan, plan)}.")
     return promo
@@ -136,8 +137,6 @@ async def check(req: PromoCheck, user: dict = Depends(current_user)):
     import billing  # import local : billing utilise aussi ce module
     promo = await find_valid(req.code, user, req.plan)
     out = {"code": promo["code"], "kind": promo["kind"], "description": describe(promo)}
-    if promo["kind"] == "free":
-        return out
     cfg = await billing.get_config()
     label = cfg.price_monthly_label if req.plan == "monthly" else cfg.price_yearly_label
     price = parse_price(label)
@@ -150,29 +149,13 @@ async def check(req: PromoCheck, user: dict = Depends(current_user)):
         # Seul PayPal est proposé et le code n'y est pas utilisable : on dit pourquoi
         raise HTTPException(status_code=400, detail="Avec PayPal, une réduction sur toute la durée doit "
                                                     "laisser un prix d'au moins 0,50 €.")
+    if promo["kind"] == "free":
+        trial_end = now() + timedelta(days=promo["days"])
+        out.update(trial_days=promo["days"], trial_end=trial_end.isoformat(),
+                   description=f"{promo['days']} jours gratuits, puis {fmt_eur(price)} par "
+                               f"{'mois' if req.plan == 'monthly' else 'an'}")
     return {**out, "price_before": fmt_eur(price), "price_after": fmt_eur(after),
             "stripe": stripe_ok, "paypal": paypal_ok}
-
-
-class PromoRedeem(BaseModel):
-    code: str = Field(max_length=40)
-
-
-@public_router.post("/redeem", dependencies=[Depends(limit("promo", 20, 3600, per="user"))])
-async def redeem(req: PromoRedeem, user: dict = Depends(current_user)):
-    """Code « accès offert » : prolonge Premium sans paiement."""
-    promo = await find_valid(req.code, user)
-    if promo["kind"] != "free":
-        raise HTTPException(status_code=400, detail="Ce code s'applique au moment du paiement.")
-    current = parse_dt(user.get("premium_until"))
-    start = max(current, now()) if current else now()
-    until = (start + timedelta(days=promo["days"])).isoformat()
-    await db.users.update_one({"id": user["id"]}, {"$set": {
-        "premium_until": until,
-        "manual_premium": {"until": until, "by": f"code {promo['code']}", "at": now().isoformat(), "note": ""},
-    }})
-    await record_redemption(promo, user, "free")
-    return public_user({**user, "premium_until": until})
 
 
 # ---------- Administration ----------
@@ -196,8 +179,8 @@ class PromoIn(BaseModel):
             raise ValueError("100 % sur toute la durée : utilisez plutôt un code « accès offert ».")
         if self.kind == "amount" and not 0.5 <= self.value <= 1000:
             raise ValueError("Réduction en € : entre 0,50 et 1 000.")
-        if self.kind == "free" and not self.days:
-            raise ValueError("Indiquez le nombre de jours offerts.")
+        if self.kind == "free" and not (self.days and 1 <= self.days <= 365):
+            raise ValueError("Essai gratuit : entre 1 et 365 jours.")
         if self.kind != "free" and self.duration == "repeating" and not self.duration_months:
             raise ValueError("Indiquez le nombre de mois de réduction.")
         if not self.plans:
