@@ -5,7 +5,7 @@ import { getLegal } from "@/lib/api";
 import { usePageMeta } from "@/lib/usePageMeta";
 
 // Pages Mentions légales, CGV et Politique de confidentialité. Les informations sur l'éditeur
-// (raison sociale, SIRET, hébergeur, médiateur…) se saisissent dans l'administration ; tant
+// (raison sociale, immatriculation, hébergeur, médiateur…) se saisissent dans l'administration ; tant
 // qu'elles manquent, un repère « à compléter » s'affiche à leur place.
 const UPDATED = "26 octobre 2026";
 
@@ -62,8 +62,8 @@ const Editor = ({ l }) => (
     <p><strong><V value={l.company_name} label="nom ou raison sociale" /></strong>
       {l.legal_form && <>, {l.legal_form}</>}{l.capital && <> au capital de {l.capital}</>}</p>
     <p>Adresse : <V value={l.address} label="adresse du siège" /></p>
-    <p>SIRET : <V value={l.siret} label="numéro SIRET" />{l.rcs && <> · RCS {l.rcs}</>}
-      {l.vat_number && <> · TVA intracommunautaire : {l.vat_number}</>}</p>
+    <p>Immatriculation : <V value={l.siret} label="numéro d'immatriculation" />{l.rcs && <> · {l.rcs}</>}
+      {l.vat_number && <> · N° de TVA : {l.vat_number}</>}</p>
     <p>Contact : <V value={l.contact_email} label="adresse e-mail de contact" />{l.phone && <> · {l.phone}</>}</p>
   </>
 );
