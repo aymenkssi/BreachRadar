@@ -12,6 +12,7 @@ from pydantic import BaseModel, EmailStr, Field
 import billing
 import mailer
 import settings_store
+import stats
 from accounts import admin_user, audit, is_premium, now, parse_dt, public_user
 from privacy import delete_user_data
 from server import ANTHROPIC_API_KEY, EMERGENT_LLM_KEY, db
@@ -337,6 +338,33 @@ async def test_smtp(req: SmtpTest, admin: dict = Depends(admin_user)):
 @router.get("/smtp/usage")
 async def smtp_usage(admin: dict = Depends(admin_user)):
     return await mailer.usage()
+
+
+# ---------- Indicateurs de la page d'accueil ----------
+class StatsDisplay(BaseModel):
+    mode: Literal["auto", "manual", "hidden"]
+    value: int = Field(0, ge=0, le=100_000_000)
+    label: str = Field(min_length=1, max_length=40)
+    sub: str = Field("", max_length=80)
+
+
+async def stats_display_out() -> dict:
+    return {**await stats.monitored_display(),
+            "real_value": await db.monitors.count_documents({"verified": True})}
+
+
+@router.get("/stats-display")
+async def get_stats_display(admin: dict = Depends(admin_user)):
+    return await stats_display_out()
+
+
+@router.put("/stats-display")
+async def update_stats_display(req: StatsDisplay, admin: dict = Depends(admin_user)):
+    values = {f"monitored_{k}": (v.strip() if isinstance(v, str) else v) for k, v in req.model_dump().items()}
+    values.update(updated_at=now().isoformat(), updated_by=admin["email"])
+    await settings_store.put(stats.DISPLAY_KEY, values)
+    await audit(admin, "STATS_DISPLAY_UPDATE", f"mode={req.mode}; value={req.value}")
+    return await stats_display_out()
 
 
 # ---------- Informations légales et journal ----------

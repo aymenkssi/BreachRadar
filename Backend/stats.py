@@ -8,12 +8,15 @@ from typing import Optional
 
 from fastapi import APIRouter
 
+import settings_store
 from server import XON_BASE, _get, db, parse_domain
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["stats"])
 
 CACHE_SECONDS = 3600
+DISPLAY_KEY = "stats_display"
+MONITORED_DEFAULTS = {"mode": "auto", "value": 0, "label": "Adresses surveillées", "sub": "veille BreachRadar Premium"}
 TREND_DAYS = 30
 MIN_TREND_DAYS = 7  # en dessous, l'historique est trop court pour afficher une tendance
 _lock = asyncio.Lock()
@@ -77,14 +80,34 @@ async def refresh() -> dict:
     return result
 
 
-@router.get("/stats")
-async def stats():
+async def monitored_display() -> dict:
+    """Réglage de la carte « Adresses surveillées » (admin) : auto (compteur réel), manual ou hidden."""
+    doc = await settings_store.get(DISPLAY_KEY) or {}
+    return {k: doc.get(f"monitored_{k}", v) for k, v in MONITORED_DEFAULTS.items()}
+
+
+def apply_display(data: dict, display: dict) -> dict:
+    if not data.get("available"):
+        return data
+    data = {**data, "trends": dict(data.get("trends") or {}),
+            "monitored_card": {"label": display["label"], "sub": display["sub"], "hidden": display["mode"] == "hidden"}}
+    if display["mode"] == "manual":
+        data["monitored_addresses"] = display["value"]
+        data["trends"]["monitored_addresses"] = None  # pas de tendance sur une valeur saisie
+    return data
+
+
+async def _current() -> dict:
     cached = await db.stats_cache.find_one({"_id": "global"}, {"_id": 0})
-    fresh = cached and (now() - datetime.fromisoformat(cached["computed_at"])).total_seconds() < CACHE_SECONDS
-    if fresh:
+    if cached and (now() - datetime.fromisoformat(cached["computed_at"])).total_seconds() < CACHE_SECONDS:
         return cached
     async with _lock:  # un seul recalcul à la fois par processus
         cached = await db.stats_cache.find_one({"_id": "global"}, {"_id": 0})
         if cached and (now() - datetime.fromisoformat(cached["computed_at"])).total_seconds() < CACHE_SECONDS:
             return cached
         return await refresh()
+
+
+@router.get("/stats")
+async def stats():
+    return apply_display(await _current(), await monitored_display())

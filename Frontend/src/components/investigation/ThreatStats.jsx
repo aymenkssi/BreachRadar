@@ -40,6 +40,8 @@ export const ThreatStats = () => {
   if (!data?.available) return null;
   const t = data.trends || {};
   const pct = data.breaches ? Math.round((data.critical_breaches / data.breaches) * 100) : 0;
+  // Carte « Adresses surveillées » : titre, texte et visibilité réglés dans l'administration
+  const monitored = data.monitored_card || { label: "Adresses surveillées", sub: "veille BreachRadar Premium", hidden: false };
   return (
     <section className="mb-8" data-testid="threat-stats">
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
@@ -57,15 +59,17 @@ export const ThreatStats = () => {
           </span>
         )}
       </div>
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+      <div className={`grid grid-cols-2 gap-3 sm:gap-4 ${monitored.hidden ? "lg:grid-cols-3" : "lg:grid-cols-4"}`}>
         <Card testid="stat-breaches" label="Fuites recensées" value={integer.format(data.breaches)} trend={t.breaches}
           icon={Database} sub="services piratés ou exposés" />
         <Card testid="stat-records" label="Comptes exposés" value={compact.format(data.records)} trend={t.records}
           icon={Users} sub="enregistrements divulgués" />
         <Card testid="stat-critical" label="Fuites critiques" value={integer.format(data.critical_breaches)}
           icon={ShieldAlert} sub={`${pct} % des fuites (mots de passe, banque, identité…)`} />
-        <Card testid="stat-monitored" label="Adresses surveillées" value={integer.format(data.monitored_addresses)}
-          trend={t.monitored_addresses} bad={false} icon={BellRing} sub="veille BreachRadar Premium" />
+        {!monitored.hidden && (
+          <Card testid="stat-monitored" label={monitored.label} value={integer.format(data.monitored_addresses)}
+            trend={t.monitored_addresses} bad={false} icon={BellRing} sub={monitored.sub} />
+        )}
       </div>
     </section>
   );

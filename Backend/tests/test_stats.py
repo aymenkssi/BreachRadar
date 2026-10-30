@@ -52,3 +52,25 @@ def test_stats_unavailable_without_any_data(env, monkeypatch):  # noqa: F811
         raise RuntimeError("XON indisponible")
     monkeypatch.setattr(stats, "_get", down)
     assert env["client"].get("/api/stats").json() == {"available": False, "source_ok": False}
+
+
+def test_admin_controls_monitored_card(env, monkeypatch):  # noqa: F811
+    c = env["client"]
+    monkeypatch.setattr(stats, "_get", lambda url, params, strict: CATALOG)
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    from test_premium import signup
+    headers = signup(env, "admin@example.com")
+    assert c.get("/api/admin/stats-display", headers=headers).json() == {
+        "mode": "auto", "value": 0, "label": "Adresses surveillées", "sub": "veille BreachRadar Premium",
+        "real_value": 0}
+    body = {"mode": "manual", "value": 250, "label": "Comptes protégés", "sub": "depuis le lancement"}
+    out = c.put("/api/admin/stats-display", json=body, headers=headers).json()
+    assert out["mode"] == "manual" and out["real_value"] == 0
+    data = c.get("/api/stats").json()
+    assert data["monitored_addresses"] == 250 and data["trends"]["monitored_addresses"] is None
+    assert data["monitored_card"] == {"label": "Comptes protégés", "sub": "depuis le lancement", "hidden": False}
+    c.put("/api/admin/stats-display", json={**body, "mode": "hidden"}, headers=headers)
+    assert c.get("/api/stats").json()["monitored_card"]["hidden"] is True
+    c.put("/api/admin/stats-display", json={**body, "mode": "auto"}, headers=headers)
+    assert c.get("/api/stats").json()["monitored_addresses"] == 0  # compteur réel
+    assert c.put("/api/admin/stats-display", json=body, headers=signup(env)).status_code == 403
