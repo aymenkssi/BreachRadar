@@ -9,6 +9,7 @@ import server  # noqa: F401  (configure la journalisation et la base)
 from billing import refresh_subscriptions, send_renewal_reminders
 from premium import run_monitor_checks
 from privacy import purge_expired_data
+from stats import refresh as refresh_stats
 
 logger = logging.getLogger("scheduler")
 INTERVAL_HOURS = float(os.environ.get("MONITOR_INTERVAL_HOURS", "24"))
@@ -20,6 +21,7 @@ async def run_once() -> None:
     await refresh_subscriptions()
     logger.info(f"Rappels de reconduction envoyés : {await send_renewal_reminders()}")
     logger.info(f"Purge des données expirées : {await purge_expired_data()}")
+    await refresh_stats()  # garantit un relevé quotidien des indicateurs (tendances sur 30 jours)
 
 
 async def main() -> None:

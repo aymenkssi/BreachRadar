@@ -16,6 +16,7 @@ import { PasswordCheckDialog } from "@/components/investigation/PasswordCheckDia
 import { WatchlistSheet } from "@/components/investigation/WatchlistSheet";
 import { CompareDialog } from "@/components/investigation/CompareDialog";
 import { ThemeToggle } from "@/components/investigation/ThemeToggle";
+import { ThreatStats } from "@/components/investigation/ThreatStats";
 import { AccountSheet } from "@/components/account/AccountSheet";
 import { useAuth } from "@/components/AuthProvider";
 import { usePageMeta } from "@/lib/usePageMeta";
@@ -215,7 +216,7 @@ export default function Dashboard() {
 
         {loading && <ScanningState target={target} />}
 
-        {!loading && !result && <EmptyState />}
+        {!loading && !result && <><ThreatStats /><EmptyState /></>}
 
         {!loading && result && (
           <div className="space-y-6">

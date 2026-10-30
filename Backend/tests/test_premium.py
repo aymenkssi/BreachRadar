@@ -15,6 +15,7 @@ import premium
 import privacy
 import promo
 import ratelimit
+import stats
 import server
 import settings_store
 from server import Breach
@@ -24,7 +25,7 @@ from server import Breach
 def env(monkeypatch):
     db = AsyncMongoMockClient()["test"]
     for module in (server, main, accounts, billing, premium, mailer, settings_store, admin, privacy, promo,
-                   ratelimit):
+                   ratelimit, stats):
         monkeypatch.setattr(module, "db", db)
     sent = []
     monkeypatch.setattr(mailer, "_transport", sent.append)

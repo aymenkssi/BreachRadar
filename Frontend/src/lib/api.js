@@ -103,6 +103,7 @@ export const checkPromo = (code, plan) =>
 export const confirmStripeCheckout = (sessionId) =>
   axios.post(`${API}/billing/stripe/confirm`, { session_id: sessionId }).then((r) => r.data);
 export const getLegal = () => axios.get(`${API}/legal`).then((r) => r.data);
+export const getStats = () => axios.get(`${API}/stats`).then((r) => r.data);
 
 // ---------- Premium ----------
 export const getMonitors = () => axios.get(`${API}/premium/monitors`).then((r) => r.data);

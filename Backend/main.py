@@ -5,10 +5,11 @@ import billing
 import premium
 import privacy
 import promo
+import stats
 from server import app, db, startup_hooks
 
 for router in (accounts.router, privacy.router, billing.router, premium.router, admin.router, admin.public_router,
-               promo.router, promo.public_router):
+               promo.router, promo.public_router, stats.router):
     app.include_router(router)
 
 
@@ -28,6 +29,7 @@ async def create_indexes():
     await db.rate_limits.create_index("expires_at", expireAfterSeconds=0)
     await db.paypal_promo_plans.create_index("key", unique=True)
     await db.paypal_promo_plans.create_index("plan_id")
+    await db.stats_history.create_index("date", unique=True)
 
 
 startup_hooks.append(create_indexes)
